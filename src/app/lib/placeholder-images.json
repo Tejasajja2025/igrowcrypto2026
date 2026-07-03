@@ -1,0 +1,59 @@
+
+{
+  "placeholderImages": [
+    {
+      "id": "hero-global",
+      "description": "OrngFinance Institutional Dashboard Visualization",
+      "imageUrl": "/Group 2.png",
+      "imageHint": "trading dashboard"
+    },
+    {
+      "id": "ai-feature",
+      "description": "Clean minimalist interface of a trading dashboard",
+      "imageUrl": "https://picsum.photos/seed/orng2/600/400",
+      "imageHint": "trading dashboard"
+    },
+    {
+      "id": "ecosystem-showcase",
+      "description": "OrngFinance Ecosystem Journey Visualization",
+      "imageUrl": "/Your crypto journey starts here (1).png",
+      "imageHint": "crypto ecosystem"
+    },
+    {
+      "id": "visa-fan",
+      "description": "Premium metal trading cards fan",
+      "imageUrl": "https://picsum.photos/seed/metalcards/1200/800",
+      "imageHint": "credit cards"
+    },
+    {
+      "id": "basket-icon",
+      "description": "3D stack of coins icon",
+      "imageUrl": "https://picsum.photos/seed/3dbasket/400/400",
+      "imageHint": "3d coins"
+    },
+    {
+      "id": "earn-icon",
+      "description": "3D vault safe icon",
+      "imageUrl": "https://picsum.photos/seed/3dearn/400/400",
+      "imageHint": "3d vault"
+    },
+    {
+      "id": "staking-icon",
+      "description": "3D block processing icon",
+      "imageUrl": "https://picsum.photos/seed/3dstake/400/400",
+      "imageHint": "3d technology"
+    },
+    {
+      "id": "pay-icon",
+      "description": "3D gift box icon",
+      "imageUrl": "https://picsum.photos/seed/3dpay/400/400",
+      "imageHint": "3d gift"
+    },
+    {
+      "id": "commission-structure",
+      "description": "iGrow Commission Structure Diagram",
+      "imageUrl": "/Untitled design (2).png",
+      "imageHint": "commission chart"
+    }
+  ]
+}

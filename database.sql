@@ -94,3 +94,43 @@ VALUES ('Vantage', 'api.vantage.example', 443, NULL, 'Sample Vantage-like provid
 
 -- Optional sample record for site content initialization
 -- INSERT INTO `site_content` (`id`, `json_data`) VALUES ('site', '{}');
+
+-- Seed a default site content payload with popup fields
+INSERT INTO `site_content` (`id`, `json_data`)
+VALUES (
+  'site',
+  '{
+    "branding": {
+      "logoUrl": "/igrow_logo footer - Copy.png",
+      "siteName": "iGrow Finance"
+    },
+    "hero": {
+      "title": "Institutional Global Liquidity Network",
+      "description": "Connect to the world\'s most robust trading ecosystem. Precision execution across crypto and forex, powered by Orng\'s high-fidelity backbone.",
+      "imageUrl": "/Group 2.png",
+      "popupTitle": "iGrow Learning Institute Offers",
+      "popupDescription": "Discover special programs, mentorship access, and exclusive training offers tailored for ambitious traders and learners.",
+      "popupImageUrl": "/Your crypto journey starts here (1).png",
+      "popupHighlights": "• Free strategy coaching for early enrollees\n• Monthly market intelligence sessions\n• Direct signal access and trade reviews\n• Mobile-ready learning community",
+      "popupHowItWorks": "Join the institute, access the trading dashboard, and receive curated education with real-world signal guidance, all optimized for desktop and mobile users."
+    },
+    "wealth": {
+      "title": "Built for wealth, made for everyone",
+      "description": "Trusted by institutional and retail investors around the world since 2016."
+    },
+    "copyTrading": {
+      "title": "Precision Copy Trading",
+      "description": "Mirror the performance of the world\'s most successful traders. Precision execution for Forex and Crypto markets.",
+      "videoUrl": "/Untitled design.mp4"
+    },
+    "packages": {
+      "instituteName": "IGROW LEARNING INSTITUTE",
+      "subtitle": "Course & Admission Programs"
+    },
+    "referral": {
+      "title": "iGrow Referral Benefits",
+      "description": "Scale your network and unlock exponential rewards. Our unique referral structure is designed to reward active ecosystem participants.",
+      "imageUrl": "/commiso.png"
+    }
+  }'
+);

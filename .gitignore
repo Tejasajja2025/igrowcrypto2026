@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.idx/
+.modified/
+.env
+.env.local
+.env.*
+!.env.local.example
+!.env.example
+tsconfig.tsbuildinfo
+coverage/
+dist/
+build/

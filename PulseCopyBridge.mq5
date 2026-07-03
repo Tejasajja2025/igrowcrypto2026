@@ -18,12 +18,15 @@ input int    OrderDeviation = 20;
 input bool   StrictTPValidation = false;  // Set to false for brokers with restricted pricing
 
 string lastProcessedSignal = "";
+long bridgeStartTime = 0;
 CTrade trade;
 
 int OnInit()
 {
+   bridgeStartTime = TimeCurrent();
    Print("PulseCopy Self-Hosted Bridge Started.");
    Print("Target API: ", ApiUrl);
+   Print("Bridge start time (UTC): ", bridgeStartTime);
    if(StringLen(FollowerKey) > 0)
       Print("Follower Key: ", FollowerKey);
    EventSetTimer(PollIntervalSec);
@@ -47,6 +50,8 @@ void OnTimer()
       requestUrl += StringFind(ApiUrl, "?") >= 0 ? "&followerKey=" : "?followerKey=";
       requestUrl += followerKey;
    }
+   requestUrl += StringFind(requestUrl, "?") >= 0 ? "&" : "?";
+   requestUrl += "since=" + IntegerToString(bridgeStartTime * 1000);
 
    int status = WebRequest("GET", requestUrl, "Content-Type: application/json\r\n", RequestTimeoutMs, requestData, result, resultHeaders);
    if(status == 200)
@@ -63,44 +68,83 @@ void OnTimer()
          double entryPrice = 0;
          double stopLoss = 0;
          double takeProfit = 0;
+         double lotSize = 0;
          int parseStart = 0;
          bool processedAny = false;
 
-         if(ParseFirstPendingSignal(response, parseStart, parseStart, signalId, currencyPair, direction, action, entryPrice, stopLoss, takeProfit))
+         int nextStart = 0;
+         // Process all pending signals in the response
+         while(ParseFirstPendingSignal(response, parseStart, nextStart, signalId, currencyPair, direction, action, entryPrice, stopLoss, takeProfit, lotSize))
          {
+            parseStart = nextStart;
             if(StringLen(signalId) == 0)
             {
                Print("No valid signal id found in response.");
+               continue;
             }
-            else if(StringCompare(signalId, lastProcessedSignal) != 0)
+
+            if(StringCompare(signalId, lastProcessedSignal) == 0)
             {
-               Print("Processing signal ", signalId, ": ", action, " ", direction, " ", currencyPair);
-               bool success = false;
-               if(StringCompare(action, "CLOSE") == 0)
+               Print("Signal already processed: ", signalId);
+               continue;
+            }
+
+            Print("Processing signal ", signalId, ": ", action, " ", direction, " ", currencyPair);
+
+            // If opening and an existing position in the same direction exists, acknowledge and skip executing
+            bool alreadySameDir = false;
+            if(StringCompare(action, "OPEN") == 0)
+            {
+               if(PositionSelect(currencyPair))
+               {
+                  int existingType = (int)PositionGetInteger(POSITION_TYPE);
+                  if((existingType == POSITION_TYPE_BUY && StringCompare(direction, "BUY") == 0) ||
+                     (existingType == POSITION_TYPE_SELL && StringCompare(direction, "SELL") == 0))
+                  {
+                     alreadySameDir = true;
+                  }
+               }
+            }
+
+            if(alreadySameDir)
+            {
+               Print("Existing position in same direction for ", currencyPair, "; acknowledging signal: ", signalId);
+               lastProcessedSignal = signalId;
+               processedAny = true;
+               if(AckSignal(signalId))
+                  Print("Signal acknowledged back to server: ", signalId);
+               continue;
+            }
+
+            bool success = false;
+            if(StringCompare(action, "CLOSE") == 0)
+            {
+               // support CLOSE ALL when currencyPair is empty or equals ALL/*
+               if(StringLen(currencyPair) == 0 || StringCompare(StringToUpper(currencyPair), "ALL") == 0 || StringCompare(currencyPair, "*") == 0)
+               {
+                  success = ExecuteCloseAll();
+               }
+               else
                {
                   success = ExecuteCloseSignal(currencyPair);
-               }
-               else
-               {
-                  success = ExecuteSignal(currencyPair, direction, entryPrice, stopLoss, takeProfit);
-               }
-
-               if(success)
-               {
-                  lastProcessedSignal = signalId;
-                  processedAny = true;
-                  Print("Signal processed: ", signalId);
-                  if(AckSignal(signalId))
-                     Print("Signal acknowledged back to server: ", signalId);
-               }
-               else
-               {
-                  Print("Signal processing failed: ", signalId);
                }
             }
             else
             {
-               Print("Signal already processed: ", signalId);
+               success = ExecuteSignal(currencyPair, direction, entryPrice, stopLoss, takeProfit, lotSize);
+            }
+
+            if(success)
+            {
+               lastProcessedSignal = signalId;
+               processedAny = true;
+               Print("Signal processed: ", signalId);
+               if(AckSignal(signalId))
+                  Print("Signal acknowledged back to server: ", signalId);
+            }
+            else
+            {
+               Print("Signal processing failed: ", signalId);
             }
          }
 
@@ -124,7 +168,7 @@ void OnTimer()
    }
 }
 
-bool ParseFirstPendingSignal(const string json, int searchFrom, int &nextSearchStart, string &signalId, string &currencyPair, string &direction, string &action, double &entryPrice, double &stopLoss, double &takeProfit)
+bool ParseFirstPendingSignal(const string json, int searchFrom, int &nextSearchStart, string &signalId, string &currencyPair, string &direction, string &action, double &entryPrice, double &stopLoss, double &takeProfit, double &lotSize)
 {
    int signalsIndex = StringFind(json, "\"signals\"");
    if(signalsIndex < 0) return false;
@@ -142,6 +186,14 @@ bool ParseFirstPendingSignal(const string json, int searchFrom, int &nextSearchS
    nextSearchStart = objectEnd + 1;
    signalId = ExtractJsonField(document, "id");
    currencyPair = ExtractJsonField(document, "currencyPair");
+   if(StringLen(currencyPair) == 0)
+      currencyPair = ExtractJsonField(document, "symbol");
+   // sanitize common formats (e.g. EUR/USD -> EURUSD, remove spaces)
+   if(StringLen(currencyPair) > 0)
+   {
+      StringReplace(currencyPair, "/", "");
+      StringReplace(currencyPair, " ", "");
+   }
    direction = ExtractJsonField(document, "direction");
    action = ExtractJsonField(document, "action");
    if(StringLen(action) == 0)
@@ -149,8 +201,9 @@ bool ParseFirstPendingSignal(const string json, int searchFrom, int &nextSearchS
    entryPrice = StringToDouble(ExtractJsonField(document, "entryPrice"));
    stopLoss = StringToDouble(ExtractJsonField(document, "stopLoss"));
    takeProfit = StringToDouble(ExtractJsonField(document, "takeProfit"));
+   lotSize = StringToDouble(ExtractJsonField(document, "lotSize"));
 
-   return StringLen(signalId) > 0 && StringLen(currencyPair) > 0 && StringLen(direction) > 0;
+      return StringLen(signalId) > 0;
 }
 
 int MaxInt(int a, int b)
@@ -252,10 +305,17 @@ void SanitizeStops(const string currencyPair, const int orderType, const double 
    }
 }
 
-bool ExecuteSignal(const string currencyPair, const string direction, double entryPrice, double stopLoss, double takeProfit)
+bool ExecuteSignal(const string currencyPair, const string direction, double entryPrice, double stopLoss, double takeProfit, double lotSize)
 {
    if(StringLen(currencyPair) == 0 || StringLen(direction) == 0)
       return false;
+
+   // Ensure the requested symbol is available in Market Watch
+   if(!SymbolSelect(currencyPair, true))
+   {
+      Print("SymbolSelect failed for ", currencyPair, " - symbol may not be in Market Watch or not supported by broker.");
+      return false;
+   }
 
    double price = 0;
    ENUM_ORDER_TYPE orderType = ORDER_TYPE_BUY;
@@ -297,7 +357,7 @@ bool ExecuteSignal(const string currencyPair, const string direction, double ent
 
    request.action = TRADE_ACTION_DEAL;
    request.symbol = currencyPair;
-   request.volume = OrderVolume;
+   request.volume = lotSize > 0 ? lotSize : OrderVolume;
    request.type = orderType;
    request.price = price;
    request.sl = stopLoss > 0 ? stopLoss : 0;
@@ -333,27 +393,126 @@ bool ExecuteCloseSignal(const string currencyPair)
    if(StringLen(currencyPair) == 0)
       return false;
 
-   if(!PositionSelect(currencyPair))
+   // Ensure the symbol is in Market Watch to allow close operations
+   if(!SymbolSelect(currencyPair, true))
    {
-      Print("No open position found for symbol: ", currencyPair);
+      Print("SymbolSelect failed for CLOSE symbol ", currencyPair, " - symbol may not be in Market Watch.");
+   }
+
+   Print("ExecuteCloseSignal: attempting to close positions for ", currencyPair);
+
+   // Try selecting by symbol first
+   if(PositionSelect(currencyPair))
+   {
+      ulong ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+      Print("Found selected position for symbol ", currencyPair, " ticket=", ticket);
+      if(ticket != 0)
+      {
+         if(trade.PositionClose(ticket))
+         {
+            Print("PositionClose requested for ", currencyPair, " ticket=", ticket);
+            return true;
+         }
+         else
+         {
+            Print("PositionClose by ticket failed for ", currencyPair, " ticket=", ticket);
+         }
+      }
+      else
+      {
+         Print("Position selected but ticket==0 for symbol: ", currencyPair);
+      }
+
+      // fallback: try closing by symbol using CTrade overload
+      if(trade.PositionClose(currencyPair))
+      {
+         Print("PositionClose by symbol succeeded for: ", currencyPair);
+         return true;
+      }
+      else
+      {
+         Print("PositionClose by symbol failed for: ", currencyPair);
+      }
+   }
+   else
+   {
+      Print("PositionSelect failed for symbol: ", currencyPair, " - will scan all positions for matches.");
+   }
+
+   // Scan all positions to find matching symbols and close them
+   int total = PositionsTotal();
+   bool anyClosed = false;
+   for(int i = total - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(!PositionSelectByTicket(ticket)) continue;
+      string sym = PositionGetString(POSITION_SYMBOL);
+      if(StringCompare(sym, currencyPair) == 0)
+      {
+         Print("Found matching position ticket=", ticket, " symbol=", sym, " - closing.");
+         if(trade.PositionClose(ticket))
+         {
+            anyClosed = true;
+            Print("PositionClose requested for ticket=", ticket);
+         }
+         else
+         {
+            Print("Failed to close ticket=", ticket);
+         }
+      }
+   }
+
+   if(!anyClosed)
+      Print("No positions closed for symbol: ", currencyPair);
+
+   return anyClosed;
+}
+
+bool ExecuteCloseAll()
+{
+   int total = PositionsTotal();
+   if(total <= 0)
+   {
+      Print("No open positions to close.");
       return false;
    }
 
-   ulong ticket = PositionGetInteger(POSITION_TICKET);
-   if(ticket == 0)
+   bool anyClosed = false;
+   // iterate from end in case closing reduces the list
+   for(int i = total - 1; i >= 0; i--)
    {
-      Print("Failed to resolve position ticket for: ", currencyPair);
-      return false;
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0) continue;
+         if(!PositionSelectByTicket(ticket))
+         {
+            Print("PositionSelectByTicket failed for ticket=", ticket);
+            continue;
+         }
+         string sym = PositionGetString(POSITION_SYMBOL);
+         Print("Attempting close for ticket=", ticket, " symbol=", sym);
+         // attempt to close by ticket
+         if(trade.PositionClose(ticket))
+         {
+            anyClosed = true;
+            Print("PositionClose requested for ticket=", ticket);
+         }
+         else
+         {
+            Print("PositionClose by ticket failed for ticket=", ticket, "; trying by symbol: ", sym);
+            if(trade.PositionClose(sym))
+            {
+               anyClosed = true;
+               Print("PositionClose by symbol requested for ", sym);
+            }
+            else
+            {
+               Print("PositionClose by symbol also failed for ", sym);
+            }
+         }
    }
 
-   if(!trade.PositionClose(ticket))
-   {
-      Print("PositionClose failed for ", currencyPair, " ticket=", ticket);
-      return false;
-   }
-
-   Print("Close order requested for position: ", currencyPair, " ticket=", ticket);
-   return true;
+   return anyClosed;
 }
 
 bool AckSignal(const string signalId)

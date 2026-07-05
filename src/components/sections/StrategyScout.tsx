@@ -1,161 +1,291 @@
 "use client";
 
-import { useState } from 'react';
-import { defineTradingPersona, StrategyScoutAIDefinePersonaOutput } from '@/ai/flows/strategy-scout-ai-define-persona-flow';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createChart, CandlestickSeries, type CandlestickData, type UTCTimestamp } from 'lightweight-charts';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
-import { BrainCircuit, Loader2, Target, PieChart, ShieldCheck } from 'lucide-react';
+import { ArrowRight, DollarSign, TrendingUp, Sparkles } from 'lucide-react';
+
+const marketOptions = [
+  { symbol: 'BTC/USD', label: 'Bitcoin', category: 'Crypto' },
+  { symbol: 'ETH/USD', label: 'Ethereum', category: 'Crypto' },
+  { symbol: 'XRP/USD', label: 'Ripple', category: 'Crypto' },
+  { symbol: 'SOL/USD', label: 'Solana', category: 'Crypto' },
+  { symbol: 'LINK/USD', label: 'Chainlink', category: 'Crypto' },
+  { symbol: 'CRO/USD', label: 'Cronos', category: 'Crypto' },
+  { symbol: 'PENGU/USD', label: 'Pudgy Penguins', category: 'Crypto' },
+  { symbol: 'EUR/USD', label: 'Euro / Dollar', category: 'Forex' },
+  { symbol: 'GBP/JPY', label: 'Pound / Yen', category: 'Forex' },
+  { symbol: 'USD/JPY', label: 'Dollar / Yen', category: 'Forex' },
+];
+
+const categories = ['Crypto', 'Forex'] as const;
+
+function formatPrice(value: number | string) {
+  if (typeof value === 'number') {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(value);
+  }
+  return String(value);
+}
+
+function CandlestickChart({ data }: { data: CandlestickData[] }) {
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const chartApiRef = useRef<any>(null);
+  const seriesRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    const chart = createChart(chartRef.current, {
+      width: chartRef.current.clientWidth,
+      height: 380,
+      layout: {
+        background: { color: 'transparent' },
+        textColor: '#E5E7EB',
+      },
+      grid: {
+        vertLines: { color: 'rgba(148,163,184,0.08)' },
+        horzLines: { color: 'rgba(148,163,184,0.08)' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(148,163,184,0.16)',
+      },
+      timeScale: {
+        borderColor: 'rgba(148,163,184,0.16)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: '#34D399',
+      downColor: '#F87171',
+      borderVisible: false,
+      wickUpColor: '#34D399',
+      wickDownColor: '#F87171',
+    });
+
+    chartApiRef.current = chart;
+    seriesRef.current = series;
+
+    return () => chart.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!seriesRef.current || data.length === 0) return;
+    seriesRef.current.setData(data);
+    chartApiRef.current?.timeScale().fitContent();
+  }, [data]);
+
+  return <div ref={chartRef} className="w-full h-[380px] rounded-[28px] overflow-hidden" />;
+}
 
 export default function StrategyScout() {
+  const [category, setCategory] = useState<typeof categories[number]>('Crypto');
+  const [selectedSymbol, setSelectedSymbol] = useState('BTC/USD');
+  const [marketDetails, setMarketDetails] = useState<{
+    source?: string;
+    price?: number | string;
+    change?: string;
+    high?: number;
+    low?: number;
+    candles?: CandlestickData[];
+  }>({});
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<StrategyScoutAIDefinePersonaOutput | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
-    investmentGoals: '',
-    riskTolerance: 'medium',
-    preferredAssets: 'crypto',
-    investmentHorizon: '1-3 years',
-    marketSentiment: 'bullish'
-  });
+  const options = useMemo(
+    () => marketOptions.filter((item) => item.category === category),
+    [category]
+  );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const output = await defineTradingPersona(formData);
-      setResult(output);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!options.length) return;
+    setSelectedSymbol(options[0].symbol);
+  }, [category]);
+
+  useEffect(() => {
+    const loadMarket = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(selectedSymbol)}&period=1m&limit=20`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          setError(body?.error || 'Unable to load market data');
+          setMarketDetails({});
+          return;
+        }
+
+        const json = await res.json();
+        if (!json || !json.candles) {
+          setError('No live market data available');
+          setMarketDetails({});
+          return;
+        }
+
+        const candles = json.candles.map((c: any) => ({
+          time: Math.floor(new Date(c.time).getTime() / 1000) as UTCTimestamp,
+          open: Number(c.open),
+          high: Number(c.high),
+          low: Number(c.low),
+          close: Number(c.close),
+        }));
+
+        setMarketDetails({
+          source: json.source,
+          price: json.price,
+          change: json.change,
+          high: json.high,
+          low: json.low,
+          candles,
+        });
+      } catch (err) {
+        setError('Unable to load market data');
+        setMarketDetails({});
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadMarket();
+    const interval = setInterval(loadMarket, 15000);
+    return () => clearInterval(interval);
+  }, [selectedSymbol]);
+
+  const selectedOption = marketOptions.find((item) => item.symbol === selectedSymbol);
 
   return (
-    <div id="ai" className="py-24 md:py-32 relative z-10">
+    <section id="market-selector" className="py-24 md:py-32 relative z-10 bg-[#080D1C]">
       <div className="container mx-auto px-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-16">
-            <div className="lg:col-span-2 space-y-10">
-              <div className="space-y-6">
-                <div className="w-16 h-16 md:w-20 md:h-20 rounded-[20px] md:rounded-[24px] bg-primary flex items-center justify-center text-black shadow-2xl shadow-primary/30 rotate-3">
-                  <BrainCircuit className="w-8 h-8 md:w-10 md:h-10" />
+        <div className="flex flex-col lg:flex-row gap-10 lg:gap-16">
+          <div className="lg:w-[360px] space-y-8">
+            <div className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/20 backdrop-blur-3xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.35em] text-white/50">Market Selector</p>
+                  <h2 className="mt-3 text-3xl md:text-4xl font-headline font-bold text-white">Crypto & Forex</h2>
                 </div>
-                <h2 className="text-3xl sm:text-5xl md:text-6xl font-headline font-bold leading-[1.2] text-white tracking-tight">
-                  Neural <span className="text-primary italic">Scout AI</span>
-                </h2>
-                <p className="text-white/50 leading-relaxed text-base md:text-xl font-medium">
-                  Define your institutional DNA. Our AI engine correlates your preferences with live market metrics.
-                </p>
+                <div className="rounded-3xl bg-primary/10 text-primary p-3">
+                  <DollarSign className="w-6 h-6" />
+                </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-6 bg-white/5 backdrop-blur-3xl border border-white/10 p-8 md:p-10 rounded-[35px] md:rounded-[45px] shadow-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[60px] -z-10" />
-                
-                <div className="space-y-3">
-                  <Label className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/40 ml-1">Core Objective</Label>
-                  <Input 
-                    placeholder="e.g. Wealth preservation & growth" 
-                    className="bg-black/40 border-white/10 h-14 md:h-16 rounded-2xl md:rounded-3xl focus:ring-4 focus:ring-primary/10 transition-all text-white placeholder:text-white/20 px-6 text-base"
-                    value={formData.investmentGoals}
-                    onChange={e => setFormData({...formData, investmentGoals: e.target.value})}
-                    required
-                  />
-                </div>
+              <div className="flex gap-3 mb-6">
+                {categories.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setCategory(item)}
+                    className={`rounded-full px-5 py-2 text-sm font-semibold transition ${category === item ? 'bg-primary text-black' : 'bg-white/5 text-white/70 hover:bg-white/10'}`}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <Label className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/40 ml-1">Risk Profile</Label>
-                    <Select onValueChange={v => setFormData({...formData, riskTolerance: v})} defaultValue={formData.riskTolerance}>
-                      <SelectTrigger className="bg-black/40 border-white/10 h-14 md:h-16 rounded-2xl md:rounded-3xl text-white px-6 text-sm focus:ring-4 focus:ring-primary/10 transition-all">
-                        <SelectValue placeholder="Balanced" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0C1222] border-white/10 text-white rounded-2xl p-2">
-                        <SelectItem value="low" className="rounded-xl py-2 px-4">Conservative</SelectItem>
-                        <SelectItem value="medium" className="rounded-xl py-2 px-4">Balanced</SelectItem>
-                        <SelectItem value="high" className="rounded-xl py-2 px-4">Aggressive</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-3">
-                    <Label className="text-[10px] uppercase tracking-[0.3em] font-bold text-white/40 ml-1">Horizon</Label>
-                    <Select onValueChange={v => setFormData({...formData, investmentHorizon: v})} defaultValue={formData.investmentHorizon}>
-                      <SelectTrigger className="bg-black/40 border-white/10 h-14 md:h-16 rounded-2xl md:rounded-3xl text-white px-6 text-sm focus:ring-4 focus:ring-primary/10 transition-all">
-                        <SelectValue placeholder="Medium Term" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0C1222] border-white/10 text-white rounded-2xl p-2">
-                        <SelectItem value="< 1 year" className="rounded-xl py-2 px-4">Short Term</SelectItem>
-                        <SelectItem value="1-3 years" className="rounded-xl py-2 px-4">Medium Term</SelectItem>
-                        <SelectItem value="3-5 years" className="rounded-xl py-2 px-4">Long Term</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <Button disabled={loading} className="w-full h-16 md:h-20 rounded-[24px] md:rounded-[28px] font-bold text-lg md:text-xl shadow-2xl shadow-primary/40 transition-all hover:scale-[1.01] active:scale-[0.98] bg-primary text-black group">
-                  {loading ? (
-                    <><Loader2 className="mr-3 h-6 w-6 animate-spin" /> Synthesizing...</>
-                  ) : (
-                    <>Analyze My DNA <ShieldCheck className="ml-2 w-6 h-6 transition-transform group-hover:rotate-12" /></>
-                  )}
-                </Button>
-              </form>
+              <div className="space-y-3">
+                {options.map((item) => {
+                  const active = item.symbol === selectedSymbol;
+                  return (
+                    <button
+                      key={item.symbol}
+                      type="button"
+                      onClick={() => setSelectedSymbol(item.symbol)}
+                      className={`w-full text-left rounded-[24px] border px-5 py-4 transition ${active ? 'border-primary bg-primary/10 text-white' : 'border-white/10 bg-white/5 text-white/80 hover:border-white/20 hover:bg-white/10'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-base">{item.label}</p>
+                          <p className="text-sm text-white/50">{item.symbol}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-primary">{active ? 'Selected' : 'View'}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="lg:col-span-3 h-full">
-              {result ? (
-                <div className="space-y-6 animate-fade-in-up">
-                  <Card className="bg-white/5 border-white/10 p-8 md:p-12 rounded-[40px] md:rounded-[50px] overflow-hidden relative group shadow-2xl backdrop-blur-md">
-                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-all duration-700">
-                      <Target className="w-48 h-48 text-white" />
-                    </div>
-                    <div className="relative z-10 space-y-6">
-                      <div className="flex items-center gap-4 text-primary">
-                        <Target className="w-8 h-8 md:w-10 md:h-10" />
-                        <span className="text-[10px] font-bold uppercase tracking-[0.3em]">Persona Verified</span>
-                      </div>
-                      <h3 className="text-2xl md:text-3xl font-headline font-bold text-white leading-tight">
-                        {result.personaDescription}
-                      </h3>
-                    </div>
-                  </Card>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    {result.portfolioAllocation.map((item, i) => (
-                      <Card key={i} className="bg-white/5 border-white/5 p-8 rounded-[30px] md:rounded-[35px] hover:border-primary/40 transition-all group relative overflow-hidden shadow-xl">
-                        <div className="flex justify-between items-start mb-6">
-                          <h4 className="font-headline font-bold text-xl text-white">{item.assetClass}</h4>
-                          <div className="px-4 py-2 bg-primary/20 text-primary rounded-xl font-code text-lg font-bold shadow-inner">
-                            {item.percentage}%
-                          </div>
+            <div className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/20 backdrop-blur-3xl">
+              <p className="text-sm uppercase tracking-[0.3em] text-white/40 mb-4">Live rates</p>
+              <div className="grid gap-4">
+                {options.slice(0, 4).map((item) => {
+                  const active = item.symbol === selectedSymbol;
+                  return (
+                    <div key={item.symbol} className={`rounded-3xl p-4 ${active ? 'bg-primary/10 border border-primary/20' : 'bg-white/5 border border-white/10'}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm text-white/50">{item.label}</p>
+                          <p className="text-lg font-bold text-white">{item.symbol}</p>
                         </div>
-                        <p className="text-sm md:text-base text-white/50 leading-relaxed font-medium">
-                          {item.rationale}
-                        </p>
-                      </Card>
-                    ))}
-                  </div>
+                        <span className="text-xs uppercase tracking-[0.35em] text-white/40">{item.category}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 space-y-6">
+            <div className="rounded-[40px] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/20 backdrop-blur-3xl">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mb-8">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.35em] text-white/50">{selectedOption?.category ?? 'Market'} Market</p>
+                  <h3 className="mt-2 text-4xl md:text-5xl font-headline font-bold text-white">{selectedOption?.label ?? selectedSymbol}</h3>
+                </div>
+                <div className="rounded-3xl bg-white/5 px-4 py-3 text-sm font-semibold text-white/80">
+                  Source: {marketDetails.source ?? 'Live'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                <div className="rounded-[24px] bg-black/40 p-5 border border-white/10">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/40">Current Price</p>
+                  <p className="mt-3 text-3xl font-bold text-white">{marketDetails.price ? formatPrice(marketDetails.price) : '—'}</p>
+                </div>
+                <div className="rounded-[24px] bg-black/40 p-5 border border-white/10">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/40">24h Change</p>
+                  <p className={`mt-3 text-3xl font-bold ${marketDetails.change?.startsWith('+') ? 'text-emerald-300' : 'text-rose-300'}`}>{marketDetails.change ?? '—'}</p>
+                </div>
+                <div className="rounded-[24px] bg-black/40 p-5 border border-white/10">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/40">Range</p>
+                  <p className="mt-3 text-sm font-semibold text-white/80">{marketDetails.high ? formatPrice(marketDetails.high) : '—'} / {marketDetails.low ? formatPrice(marketDetails.low) : '—'}</p>
+                </div>
+              </div>
+
+              {error ? (
+                <div className="rounded-[30px] border border-rose-500/20 bg-rose-500/10 p-8 text-white">
+                  <p className="font-semibold">{error}</p>
+                  <p className="mt-2 text-sm text-white/70">Try selecting another asset or refresh the page.</p>
                 </div>
               ) : (
-                <div className="h-full min-h-[500px] md:min-h-[600px] border-2 border-dashed border-white/10 rounded-[40px] md:rounded-[60px] flex flex-col items-center justify-center text-center p-12 space-y-8 relative overflow-hidden bg-white/[0.01]">
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-primary/20 blur-[60px] rounded-full animate-pulse" />
-                    <PieChart className="w-24 h-24 md:w-32 md:h-32 text-white/10 relative z-10" />
-                  </div>
-                  <div className="space-y-4 max-w-sm">
-                    <h3 className="font-headline font-bold text-2xl md:text-3xl text-white/40 tracking-tight">System Ready</h3>
-                    <p className="text-white/20 text-lg font-medium leading-relaxed">Configure parameters to generate your neural performance matrix.</p>
-                  </div>
+                <div className="rounded-[30px] overflow-hidden border border-white/10 bg-black/30">
+                  {loading ? (
+                    <div className="h-[380px] flex items-center justify-center text-white/60">Loading chart…</div>
+                  ) : marketDetails.candles?.length ? (
+                    <CandlestickChart data={marketDetails.candles} />
+                  ) : (
+                    <div className="h-[380px] flex items-center justify-center text-white/50">Select a market to view the live candlestick.</div>
+                  )}
                 </div>
               )}
+            </div>
+
+            <div className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-black/20 backdrop-blur-3xl">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.35em] text-white/50">Market insight</p>
+                  <h4 className="mt-2 text-2xl font-headline font-bold text-white">Real-time performance</h4>
+                </div>
+                <ArrowRight className="w-6 h-6 text-white/40" />
+              </div>
+              <p className="text-white/60 leading-relaxed">Browse crypto and forex pairs from the left panel, then watch their live rate and candlestick chart update instantly.</p>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }

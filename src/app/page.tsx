@@ -10,6 +10,7 @@ import Ecosystem from '@/components/sections/Ecosystem';
 import Packages from '@/components/sections/Packages';
 import ReferralBenefits from '@/components/sections/ReferralBenefits';
 import Waitlist from '@/components/sections/Waitlist';
+import ContactSection from '@/components/sections/ContactSection';
 import Footer from '@/components/layout/Footer';
 import { BarChart3 } from 'lucide-react';
 
@@ -46,12 +47,12 @@ export default function Home() {
         <div className="bg-[#080D1C] overflow-hidden pt-6 md:pt-10">
           <StrategyScout />
           <BarChart3 className="w-1 h-1 opacity-0" /> {/* Hidden trigger for chart styles if needed */}
-          <RewardVisualizer />
           <Packages />
           <ReferralBenefits />
         </div>
 
         <Waitlist />
+        <ContactSection />
       </main>
       <Footer />
     </div>

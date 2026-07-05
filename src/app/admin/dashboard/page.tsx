@@ -36,19 +36,96 @@ import {
   ExternalLink,
   Menu,
   X,
+  MapPin,
 } from 'lucide-react';
+
+type ContactBranch = {
+  label?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+};
+
+type SiteContent = {
+  branding: {
+    logoUrl: string;
+    siteName: string;
+  };
+  hero: {
+    title: string;
+    description: string;
+    imageUrl: string;
+    popupTitle: string;
+    popupDescription: string;
+    popupImageUrl: string;
+    popupHighlights: string;
+    popupHowItWorks: string;
+  };
+  wealth: {
+    title: string;
+    description: string;
+  };
+  copyTrading: {
+    title: string;
+    description: string;
+    videoUrl: string;
+  };
+  packages: {
+    instituteName: string;
+    subtitle: string;
+    preBasicProgram: {
+      name: string;
+      price: string;
+      duration: string;
+      extra: string;
+      discount: string;
+    };
+  };
+  referral: {
+    title: string;
+    description: string;
+    imageUrl: string;
+  };
+  contacts: {
+    main: {
+      address: string;
+      phone: string;
+      email: string;
+    };
+    branches: ContactBranch[];
+  };
+  trading: {
+    activeTrades: Array<{
+      id: string;
+      pair: string;
+      type: string;
+      entry: string;
+      current: string;
+      pnl: string;
+      status: string;
+    }>;
+    traders: Array<{
+      name: string;
+      yield: string;
+      followers: string;
+      risk: string;
+    }>;
+  };
+};
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [dbError, setDbError] = useState(false);
   const [uploadingPopupImage, setUploadingPopupImage] = useState(false);
+  const [uploadingReferralImage, setUploadingReferralImage] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('trading');
   const router = useRouter();
   const { toast } = useToast();
 
-  const [content, setContent] = useState({
+  const [content, setContent] = useState<SiteContent>({
     branding: {
       logoUrl: "/igrow_logo footer - Copy.png",
       siteName: "iGrow Finance"
@@ -74,12 +151,34 @@ export default function AdminDashboard() {
     },
     packages: {
       instituteName: "IGROW LEARNING INSTITUTE",
-      subtitle: "Course & Admission Programs"
+      subtitle: "Course & Admission Programs",
+      preBasicProgram: {
+        name: "Pre Basic Program",
+        price: "₹5,999",
+        duration: "Awareness Program",
+        extra: "Digital currency & digital assets awareness program",
+        discount: "40% off ₹11,000"
+      }
     },
     referral: {
       title: "iGrow Referral Benefits",
       description: "Scale your network and unlock exponential rewards. Our unique referral structure is designed to reward active ecosystem participants.",
       imageUrl: "/commiso.png"
+    },
+    contacts: {
+      main: {
+        address: "Flat 11, B.A. Road, Kolkata, West Bengal, India",
+        phone: "+91 62900 50426",
+        email: "igrow201@gmail.com"
+      },
+      branches: [
+        {
+          label: "Main Office",
+          address: "Flat 11, B.A. Road, Kolkata, West Bengal, India",
+          phone: "+91 62900 50426",
+          email: "igrow201@gmail.com"
+        }
+      ]
     },
     trading: {
       activeTrades: [
@@ -158,6 +257,78 @@ export default function AdminDashboard() {
       toast({ variant: 'destructive', title: 'Upload failed', description: String(error) });
     } finally {
       setUploadingPopupImage(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setUploadingLogo(true);
+    try {
+      const response = await fetch('/api/admin/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await safeJson(response);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Logo upload failed');
+      }
+
+      setContent({
+        ...content,
+        branding: {
+          ...content.branding,
+          logoUrl: data.url,
+        },
+      });
+
+      toast({ title: 'Logo uploaded', description: 'The site logo has been updated successfully.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Upload failed', description: String(error) });
+    } finally {
+      setUploadingLogo(false);
+      event.target.value = '';
+    }
+  };
+
+  const handleReferralImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setUploadingReferralImage(true);
+    try {
+      const response = await fetch('/api/admin/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await safeJson(response);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Referral image upload failed');
+      }
+
+      setContent({
+        ...content,
+        referral: {
+          ...content.referral,
+          imageUrl: data.url,
+        },
+      });
+
+      toast({ title: 'Referral image uploaded', description: 'Structure image URL updated successfully.' });
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Upload failed', description: String(error) });
+    } finally {
+      setUploadingReferralImage(false);
       event.target.value = '';
     }
   };
@@ -301,6 +472,9 @@ export default function AdminDashboard() {
             <TabsTrigger value="branding" className="data-[state=active]:bg-primary data-[state=active]:text-black rounded-lg h-10 md:h-full flex items-center gap-1 md:gap-2 px-3 md:px-6 text-xs md:text-sm flex-shrink-0">
               <Settings className="w-3 h-3 md:w-4 md:h-4" /> <span className="hidden sm:inline">Branding</span><span className="sm:hidden">Brand</span>
             </TabsTrigger>
+            <TabsTrigger value="contacts" className="data-[state=active]:bg-primary data-[state=active]:text-black rounded-lg h-10 md:h-full flex items-center gap-1 md:gap-2 px-3 md:px-6 text-xs md:text-sm flex-shrink-0">
+              <MapPin className="w-3 h-3 md:w-4 md:h-4" /> <span className="hidden sm:inline">Contacts</span><span className="sm:hidden">Contact</span>
+            </TabsTrigger>
             <TabsTrigger value="hero" className="data-[state=active]:bg-primary data-[state=active]:text-black rounded-lg h-10 md:h-full flex items-center gap-1 md:gap-2 px-3 md:px-6 text-xs md:text-sm flex-shrink-0">
               <Type className="w-3 h-3 md:w-4 md:h-4" /> Sections
             </TabsTrigger>
@@ -395,6 +569,171 @@ export default function AdminDashboard() {
                 <div className="pt-4 border-t border-white/5">
                    <p className="text-white/40 text-xs">Recommended logo size: 400x120px, PNG with transparency.</p>
                 </div>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* CONTACTS */}
+          <TabsContent value="contacts" className="space-y-6">
+            <Card className="bg-white/5 border-white/10 text-white p-4 md:p-8 rounded-2xl md:rounded-[32px]">
+              <CardHeader className="px-0 pt-0">
+                <CardTitle className="text-lg md:text-2xl font-headline">Contact Details</CardTitle>
+              </CardHeader>
+              <div className="space-y-6 mt-4">
+                <div className="space-y-2">
+                  <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Office Address</Label>
+                  <Textarea
+                    value={content.contacts?.main?.address || ''}
+                    onChange={(e) => setContent({
+                      ...content,
+                      contacts: {
+                        ...content.contacts,
+                        main: {
+                          ...content.contacts?.main,
+                          address: e.target.value,
+                        },
+                      },
+                    })}
+                    className="bg-black/40 border-white/10 min-h-[80px] text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Phone</Label>
+                    <Input
+                      value={content.contacts?.main?.phone || ''}
+                      onChange={(e) => setContent({
+                        ...content,
+                        contacts: {
+                          ...content.contacts,
+                          main: {
+                            ...content.contacts?.main,
+                            phone: e.target.value,
+                          },
+                        },
+                      })}
+                      className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Email</Label>
+                    <Input
+                      type="email"
+                      value={content.contacts?.main?.email || ''}
+                      onChange={(e) => setContent({
+                        ...content,
+                        contacts: {
+                          ...content.contacts,
+                          main: {
+                            ...content.contacts?.main,
+                            email: e.target.value,
+                          },
+                        },
+                      })}
+                      className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="bg-white/5 border-white/10 text-white p-4 md:p-8 rounded-2xl md:rounded-[32px]">
+              <CardHeader className="px-0 pt-0">
+                <div className="flex items-center gap-3">
+                  <MapPin className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+                  <CardTitle className="text-lg md:text-2xl font-headline">Branch Addresses</CardTitle>
+                </div>
+              </CardHeader>
+              <div className="space-y-6 mt-4">
+                {(content.contacts?.branches || []).map((branch, index) => (
+                  <div key={index} className="rounded-3xl border border-white/10 bg-black/10 p-4 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm text-white/40">Branch {index + 1}</p>
+                        <p className="text-base font-semibold text-white">{branch.label || `Branch ${index + 1}`}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10"
+                        onClick={() => {
+                          const nextBranches = [...(content.contacts?.branches || [])];
+                          nextBranches.splice(index, 1);
+                          setContent({
+                            ...content,
+                            contacts: {
+                              ...content.contacts,
+                              branches: nextBranches,
+                            },
+                          });
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Branch Label</Label>
+                        <Input
+                          value={branch.label || ''}
+                          onChange={(e) => {
+                            const branches = [...(content.contacts?.branches || [])];
+                            branches[index] = { ...branches[index], label: e.target.value };
+                            setContent({ ...content, contacts: { ...content.contacts, branches } });
+                          }}
+                          className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Branch Phone</Label>
+                        <Input
+                          value={branch.phone || ''}
+                          onChange={(e) => {
+                            const branches = [...(content.contacts?.branches || [])];
+                            branches[index] = { ...branches[index], phone: e.target.value };
+                            setContent({ ...content, contacts: { ...content.contacts, branches } });
+                          }}
+                          className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Branch Email</Label>
+                      <Input
+                        type="email"
+                        value={branch.email || ''}
+                        onChange={(e) => {
+                          const branches = [...(content.contacts?.branches || [])];
+                          branches[index] = { ...branches[index], email: e.target.value };
+                          setContent({ ...content, contacts: { ...content.contacts, branches } });
+                        }}
+                        className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Branch Address</Label>
+                      <Textarea
+                        value={branch.address || ''}
+                        onChange={(e) => {
+                          const branches = [...(content.contacts?.branches || [])];
+                          branches[index] = { ...branches[index], address: e.target.value };
+                          setContent({ ...content, contacts: { ...content.contacts, branches } });
+                        }}
+                        className="bg-black/40 border-white/10 min-h-[80px] text-sm"
+                      />
+                    </div>
+                  </div>
+                ))}
+                <Button
+                  className="w-full bg-primary text-black font-bold py-4 rounded-2xl"
+                  onClick={() => {
+                    const branches = [...(content.contacts?.branches || [])];
+                    branches.push({ label: '', address: '', phone: '', email: '' });
+                    setContent({ ...content, contacts: { ...content.contacts, branches } });
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-2" /> Add Branch Address
+                </Button>
               </div>
             </Card>
           </TabsContent>
@@ -500,7 +839,6 @@ export default function AdminDashboard() {
                 </div>
               </Card>
 
-              {/* Copy Trading Section */}
               <Card className="bg-white/5 border-white/10 text-white p-4 md:p-8 rounded-2xl md:rounded-[32px]">
                 <CardHeader className="px-0 pt-0">
                   <div className="flex items-center gap-3">
@@ -565,6 +903,57 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </Card>
+
+            <Card className="bg-white/5 border-white/10 text-white p-4 md:p-8 rounded-2xl md:rounded-[32px]">
+              <CardHeader className="px-0 pt-0">
+                <CardTitle className="text-lg md:text-2xl font-headline">Pre Basic Program</CardTitle>
+                <p className="text-sm text-white/50 mt-1">Editable awareness program details for the Pre Basic Program card.</p>
+              </CardHeader>
+              <div className="space-y-6 mt-4">
+                <div className="space-y-2">
+                  <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Program Name</Label>
+                  <Input
+                    value={content.packages.preBasicProgram?.name || 'Pre Basic Program'}
+                    onChange={(e) => setContent({ ...content, packages: { ...content.packages, preBasicProgram: { ...content.packages.preBasicProgram, name: e.target.value } } })}
+                    className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Price</Label>
+                    <Input
+                      value={content.packages.preBasicProgram?.price || '₹5,999'}
+                      onChange={(e) => setContent({ ...content, packages: { ...content.packages, preBasicProgram: { ...content.packages.preBasicProgram, price: e.target.value } } })}
+                      className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Duration</Label>
+                    <Input
+                      value={content.packages.preBasicProgram?.duration || 'Awareness Program'}
+                      onChange={(e) => setContent({ ...content, packages: { ...content.packages, preBasicProgram: { ...content.packages.preBasicProgram, duration: e.target.value } } })}
+                      className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Program Description</Label>
+                  <Input
+                    value={content.packages.preBasicProgram?.extra || 'Digital currency & digital assets awareness program'}
+                    onChange={(e) => setContent({ ...content, packages: { ...content.packages, preBasicProgram: { ...content.packages.preBasicProgram, extra: e.target.value } } })}
+                    className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Discount Label</Label>
+                  <Input
+                    value={content.packages.preBasicProgram?.discount || '40% off ₹11,000'}
+                    onChange={(e) => setContent({ ...content, packages: { ...content.packages, preBasicProgram: { ...content.packages.preBasicProgram, discount: e.target.value } } })}
+                    className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                  />
+                </div>
+              </div>
+            </Card>
           </TabsContent>
 
           {/* REFERRAL */}
@@ -582,22 +971,40 @@ export default function AdminDashboard() {
                     className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
                   />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Structure Image URL</Label>
-                    <Input 
-                      value={content.referral.imageUrl}
-                      onChange={(e) => setContent({ ...content, referral: { ...content.referral, imageUrl: e.target.value }})}
-                      className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
-                    />
+                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Structure Image Upload</Label>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleReferralImageUpload}
+                        className="bg-black/40 border-white/10 h-auto text-sm file:mr-3 file:rounded-full file:border-0 file:bg-primary/15 file:px-3 file:py-1 file:text-primary"
+                      />
+                      {uploadingReferralImage ? (
+                        <span className="text-sm text-primary">Uploading...</span>
+                      ) : (
+                        <span className="text-sm text-white/50">PNG, JPG, or WEBP</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Description</Label>
-                    <Textarea 
-                      value={content.referral.description}
-                      onChange={(e) => setContent({ ...content, referral: { ...content.referral, description: e.target.value }})}
-                      className="bg-black/40 border-white/10 min-h-[80px] md:min-h-[100px] text-sm"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Structure Image URL</Label>
+                      <Input 
+                        value={content.referral.imageUrl}
+                        onChange={(e) => setContent({ ...content, referral: { ...content.referral, imageUrl: e.target.value }})}
+                        className="bg-black/40 border-white/10 h-10 md:h-12 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-white/40 text-xs uppercase tracking-widest font-bold">Description</Label>
+                      <Textarea 
+                        value={content.referral.description}
+                        onChange={(e) => setContent({ ...content, referral: { ...content.referral, description: e.target.value }})}
+                        className="bg-black/40 border-white/10 min-h-[80px] md:min-h-[100px] text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

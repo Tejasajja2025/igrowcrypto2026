@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight, TrendingUp, Flame, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import useEmblaCarousel from 'embla-carousel-react';
+import { createChart, CandlestickSeries, type CandlestickData, type UTCTimestamp } from 'lightweight-charts';
 import {
   Dialog,
   DialogContent,
@@ -17,8 +18,8 @@ const topAssets = [
   { 
     name: 'Bitcoin', 
     symbol: 'BTC', 
-    price: '$73,241.50',
-    change: '+2.45%',
+    price: 'Loading…',
+    change: '--',
     isUp: true,
     iconColor: 'bg-[#F7931A]',
     iconText: 'B',
@@ -26,10 +27,54 @@ const topAssets = [
     stroke: '#10B981' 
   },
   { 
+    name: 'Ripple', 
+    symbol: 'XRP', 
+    price: 'Loading…',
+    change: '--',
+    isUp: true,
+    iconColor: 'bg-[#346AA9]',
+    iconText: 'X',
+    line: 'M0 50 L10 45 L20 55 L30 40 L40 50 L50 35 L60 45 L70 30 L80 40 L90 25 L100 35', 
+    stroke: '#10B981' 
+  },
+  { 
+    name: 'Euro / Dollar', 
+    symbol: 'EUR/USD', 
+    price: 'Loading…',
+    change: '--',
+    isUp: true,
+    iconColor: 'bg-[#5563C1]',
+    iconText: 'EUR',
+    line: 'M0 70 L10 65 L20 75 L30 60 L40 68 L50 55 L60 63 L70 52 L80 58 L90 45 L100 50', 
+    stroke: '#38BDF8' 
+  },
+  { 
+    name: 'Pound / Yen', 
+    symbol: 'GBP/JPY', 
+    price: 'Loading…',
+    change: '--',
+    isUp: true,
+    iconColor: 'bg-[#0F766E]',
+    iconText: 'GJ',
+    line: 'M0 45 L10 50 L20 48 L30 60 L40 55 L50 70 L60 65 L70 80 L80 75 L90 90 L100 85', 
+    stroke: '#FB7185' 
+  },
+  { 
+    name: 'Dollar / Yen', 
+    symbol: 'USD/JPY', 
+    price: 'Loading…',
+    change: '--',
+    isUp: true,
+    iconColor: 'bg-[#F97316]',
+    iconText: 'UJ',
+    line: 'M0 60 L10 55 L20 65 L30 50 L40 58 L50 45 L60 53 L70 40 L80 48 L90 35 L100 42', 
+    stroke: '#22C55E' 
+  },
+  { 
     name: 'Ethereum', 
     symbol: 'ETH', 
-    price: '$3,845.12',
-    change: '-1.12%',
+    price: 'Loading…',
+    change: '--',
     isUp: false,
     iconColor: 'bg-[#627EEA]',
     iconText: 'E',
@@ -39,8 +84,8 @@ const topAssets = [
   { 
     name: 'Solana', 
     symbol: 'SOL', 
-    price: '$182.67',
-    change: '+5.82%',
+    price: 'Loading…',
+    change: '--',
     isUp: true,
     iconColor: 'bg-[#14F195]',
     iconText: 'S',
@@ -50,8 +95,8 @@ const topAssets = [
   { 
     name: 'Cronos', 
     symbol: 'CRO', 
-    price: '$0.1542',
-    change: '-2.40%',
+    price: 'Loading…',
+    change: '--',
     isUp: false,
     iconColor: 'bg-[#002D74]',
     iconText: 'C',
@@ -61,8 +106,8 @@ const topAssets = [
   { 
     name: 'Pudgy Penguins', 
     symbol: 'PENGU', 
-    price: '$12,450.00',
-    change: '+12.50%',
+    price: 'Loading…',
+    change: '--',
     isUp: true,
     iconColor: 'bg-slate-200',
     iconText: 'P',
@@ -78,6 +123,52 @@ export default function MarketCatalog() {
     dragFree: true
   });
 
+  const [marketData, setMarketData] = useState<Record<string, { price: string; change: string; isUp: boolean }>>({});
+
+  const getMarketSymbol = (symbol: string) => symbol.includes('/') ? symbol : `${symbol}/USD`;
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMarketPrices = async () => {
+      try {
+        const entries = await Promise.all(
+          topAssets.map(async (asset) => {
+            const symbol = getMarketSymbol(asset.symbol);
+            const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(symbol)}&period=1m&limit=20`);
+            if (!res.ok) return null;
+            const json = await res.json();
+            if (!json || json.price == null || json.change == null || json.source === 'mock') return null;
+
+            const price = typeof json.price === 'number'
+              ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(json.price)
+              : String(json.price);
+
+            return [asset.symbol, {
+              price,
+              change: String(json.change),
+              isUp: String(json.change).startsWith('+'),
+            }] as const;
+          })
+        );
+
+        if (!mounted) return;
+
+        const data = Object.fromEntries(entries.filter(Boolean) as Array<[string, { price: string; change: string; isUp: boolean }]>)
+        setMarketData(data);
+      } catch {
+        // ignore load errors
+      }
+    };
+
+    loadMarketPrices();
+    const interval = setInterval(loadMarketPrices, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const scrollPrev = useCallback(() => {
     if (emblaApi) emblaApi.scrollPrev();
   }, [emblaApi]);
@@ -86,16 +177,103 @@ export default function MarketCatalog() {
     if (emblaApi) emblaApi.scrollNext();
   }, [emblaApi]);
 
+  function MiniCandlestick({ symbol }: { symbol: string }) {
+    const chartRef = useRef<HTMLDivElement | null>(null);
+    const seriesRef = useRef<any>(null);
+    const chartApiRef = useRef<any>(null);
+    const [data, setData] = useState<CandlestickData[]>([]);
+
+    useEffect(() => {
+      if (!chartRef.current) return;
+
+      const chart = createChart(chartRef.current, {
+        width: 300,
+        height: 140,
+        layout: {
+          background: { color: 'transparent' },
+          textColor: '#E5E7EB',
+        },
+        grid: {
+          vertLines: { color: 'transparent' },
+          horzLines: { color: 'transparent' },
+        },
+        rightPriceScale: {
+          visible: false,
+          borderColor: 'transparent',
+        },
+        timeScale: {
+          visible: true,
+          borderColor: 'transparent',
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
+
+      const series = chart.addSeries(CandlestickSeries, {
+        upColor: '#4ade80',
+        downColor: '#fb7185',
+        borderVisible: false,
+        wickUpColor: '#4ade80',
+        wickDownColor: '#fb7185',
+      });
+
+      chartApiRef.current = chart;
+      seriesRef.current = series;
+
+      return () => chart.remove();
+    }, []);
+
+    useEffect(() => {
+      let mounted = true;
+      const load = async () => {
+        try {
+          const symbolWithPair = getMarketSymbol(symbol);
+          const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(symbolWithPair)}&period=1m&limit=20`);
+          const json = await res.json();
+          if (!mounted || !res.ok || !json?.candles || json.source === 'mock') return;
+
+          const chartData = json.candles.map((c: any) => ({
+            time: Math.floor(new Date(c.time).getTime() / 1000) as UTCTimestamp,
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+          }));
+
+          setData(chartData);
+        } catch {
+          // ignore
+        }
+      };
+      load();
+      const id = setInterval(load, 15000);
+      return () => {
+        mounted = false;
+        clearInterval(id);
+      };
+    }, [symbol]);
+
+    useEffect(() => {
+      if (!seriesRef.current || data.length === 0) return;
+      seriesRef.current.setData(data);
+      chartApiRef.current?.timeScale().fitContent();
+    }, [data]);
+
+    return <div ref={chartRef} className="w-full h-full min-h-[140px]" />;
+  }
+
   function LiveMarket({ symbol, stroke }: { symbol: string; stroke: string }) {
+    const chartRef = useRef<HTMLDivElement | null>(null);
     const [data, setData] = useState<any>(null);
 
     useEffect(() => {
       let mounted = true;
       const load = async () => {
         try {
-          const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(symbol + '/USD')}&period=1m&limit=30`);
+          const symbolWithPair = getMarketSymbol(symbol);
+          const res = await fetch(`/api/market/candles?symbol=${encodeURIComponent(symbolWithPair)}&period=1m&limit=30`);
           const json = await res.json();
-          if (mounted && res.ok) setData(json);
+          if (mounted && res.ok && json?.candles && json.source !== 'mock') setData(json);
         } catch (e) {
           // ignore
         }
@@ -108,48 +286,67 @@ export default function MarketCatalog() {
       };
     }, [symbol]);
 
+    useEffect(() => {
+      if (!data || !Array.isArray(data.candles) || !chartRef.current) return;
+
+      const chart = createChart(chartRef.current, {
+        layout: {
+          background: { color: 'transparent' },
+          textColor: '#E5E7EB',
+        },
+        grid: {
+          vertLines: { color: 'rgba(148,163,184,0.08)' },
+          horzLines: { color: 'rgba(148,163,184,0.08)' },
+        },
+        rightPriceScale: {
+          borderColor: 'rgba(148,163,184,0.16)',
+        },
+        timeScale: {
+          borderColor: 'rgba(148,163,184,0.16)',
+          timeVisible: true,
+          secondsVisible: false,
+        },
+        localization: {
+          priceFormatter: (price: number) => `$${price.toFixed(2)}`,
+        },
+      });
+
+      const candleSeries = chart.addSeries(CandlestickSeries, {
+        upColor: '#4ade80',
+        downColor: '#fb7185',
+        borderVisible: false,
+        wickUpColor: '#4ade80',
+        wickDownColor: '#fb7185',
+      });
+
+      const chartData: CandlestickData[] = data.candles.map((c: any) => ({
+        time: Math.floor(new Date(c.time).getTime() / 1000) as UTCTimestamp,
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+      }));
+
+      candleSeries.setData(chartData);
+      chart.timeScale().fitContent();
+
+      return () => chart.remove();
+    }, [data]);
+
     if (!data || !Array.isArray(data.candles)) {
       return <div className="w-full h-full flex items-center justify-center text-white/40">Live data unavailable</div>;
     }
 
-    const candles = data.candles;
-    const allPrices = candles.flatMap((c: any) => [c.high, c.low, c.open, c.close]).filter(Number.isFinite);
-    const min = Math.min(...allPrices);
-    const max = Math.max(...allPrices);
-
-    const width = 800; const height = 320; const padding = 8;
-    const count = candles.length;
-    const step = (width - padding * 2) / Math.max(1, count - 1);
-
     return (
       <div className="w-full h-full text-white/80">
         <div className="flex items-center justify-between mb-2">
-          <div className="text-lg font-bold">{symbol}/USD</div>
+          <div className="text-lg font-bold">{symbol.includes('/') ? symbol : `${symbol}/USD`}</div>
           <div className="text-right">
             <div className="text-2xl font-semibold">{data.price}</div>
             <div className={`text-sm ${String(data.change).startsWith('-') ? 'text-rose-400' : 'text-emerald-300'}`}>{data.change}</div>
           </div>
         </div>
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-          {candles.map((c: any, i: number) => {
-            const x = padding + i * step;
-            const yOpen = height - padding - ((c.open - min) / (max - min || 1)) * (height - padding * 2);
-            const yClose = height - padding - ((c.close - min) / (max - min || 1)) * (height - padding * 2);
-            const yHigh = height - padding - ((c.high - min) / (max - min || 1)) * (height - padding * 2);
-            const yLow = height - padding - ((c.low - min) / (max - min || 1)) * (height - padding * 2);
-            const candleWidth = Math.max(4, step * 0.6);
-            const bodyTop = Math.min(yOpen, yClose);
-            const bodyHeight = Math.max(1, Math.abs(yClose - yOpen));
-            const color = c.close >= c.open ? '#4ade80' : '#fb7185';
-
-            return (
-              <g key={i}>
-                <line x1={x} x2={x} y1={yHigh} y2={yLow} stroke={color} strokeWidth={1.5} />
-                <rect x={x - candleWidth / 2} y={bodyTop} width={candleWidth} height={bodyHeight} fill={color} opacity={0.9} />
-              </g>
-            );
-          })}
-        </svg>
+        <div ref={chartRef} className="w-full h-full min-h-[240px]" />
       </div>
     );
   }
@@ -214,38 +411,26 @@ export default function MarketCatalog() {
                             <span className="text-[10px] text-white/50 font-bold uppercase tracking-widest">{asset.symbol}</span>
                           </div>
                         </div>
-                        <div className={`text-[10px] md:text-sm font-bold flex items-center gap-1 ${asset.isUp ? 'text-green-400' : 'text-red-400'}`}>
-                          {asset.isUp ? '▲' : '▼'} {asset.change}
-                        </div>
+                        {(() => {
+                          const current = marketData[asset.symbol]
+                          const change = current?.change ?? asset.change
+                          const isUp = current?.isUp ?? asset.isUp
+                          return (
+                            <div className={`text-[10px] md:text-sm font-bold flex items-center gap-1 ${isUp ? 'text-green-400' : 'text-red-400'}`}>
+                              {isUp ? '▲' : '▼'} {change}
+                            </div>
+                          )
+                        })()}
                       </div>
 
                       <div className="h-24 md:h-32 w-full mb-6 md:mb-8 relative -mx-8 overflow-hidden">
-                        <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="none">
-                          <defs>
-                            <linearGradient id={`gradient-${idx}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={asset.stroke} stopOpacity="0.4" />
-                              <stop offset="100%" stopColor={asset.stroke} stopOpacity="0" />
-                            </linearGradient>
-                          </defs>
-                          <path
-                            d={`${asset.line} L 100 100 L 0 100 Z`}
-                            fill={`url(#gradient-${idx})`}
-                          />
-                          <path
-                            d={asset.line}
-                            fill="none"
-                            stroke={asset.stroke}
-                            strokeWidth="2.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        <MiniCandlestick symbol={asset.symbol} />
                       </div>
 
                       <div className="flex items-end justify-between mt-auto">
                         <div className="space-y-1">
                           <div className="text-xl md:text-2xl font-code font-bold text-white tracking-tight">
-                            {asset.price}
+                            {marketData[asset.symbol]?.price ?? 'Unavailable'}
                           </div>
                           <div className="text-[8px] md:text-[10px] text-white/40 font-bold uppercase tracking-[0.2em]">Market Value (USD)</div>
                         </div>
@@ -275,11 +460,13 @@ export default function MarketCatalog() {
                     <div className="grid grid-cols-2 gap-4 md:gap-12 bg-white/5 p-4 md:p-8 rounded-[16px] md:rounded-[24px] border border-white/5">
                       <div className="space-y-1 md:space-y-2">
                         <p className="text-[8px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold text-white/40">Current Rate</p>
-                        <div className="text-xl md:text-4xl font-code font-bold text-white tracking-tighter">{asset.price}</div>
+                        <div className="text-xl md:text-4xl font-code font-bold text-white tracking-tighter">{marketData[asset.symbol]?.price ?? 'Unavailable'}</div>
                       </div>
                       <div className="space-y-1 md:space-y-2">
                         <p className="text-[8px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold text-white/40">24h Performance</p>
-                        <div className={`text-xl md:text-4xl font-code font-bold tracking-tighter ${asset.isUp ? 'text-green-400' : 'text-red-400'}`}>{asset.change}</div>
+                        <div className={`text-xl md:text-4xl font-code font-bold tracking-tighter ${marketData[asset.symbol]?.isUp ?? asset.isUp ? 'text-green-400' : 'text-red-400'}`}>
+                          {marketData[asset.symbol]?.change ?? '--'}
+                        </div>
                       </div>
                     </div>
 

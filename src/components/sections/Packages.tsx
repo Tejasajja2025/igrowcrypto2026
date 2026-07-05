@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { Check, GraduationCap, Lightbulb, Shield, Rocket, TrendingUp, Briefcase, Trophy, Loader2, MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -17,48 +17,68 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { safeJson } from '@/lib/utils';
 
-const programs = [
+interface ProgramItem {
+  name: string;
+  price: string;
+  duration: string;
+  extra: string;
+  icon: React.ReactNode;
+  highlight: boolean;
+  discount?: string;
+}
+
+const programs: ProgramItem[] = [ 
   {
     name: "Basic Program",
-    price: "₹11,000",
+    price: "₹20,000",
     duration: "12 Months",
-    extra: "+ 50 USDT Copy",
+    extra: "",
     icon: <Shield className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
     highlight: false
   },
   {
     name: "Advanced Program",
-    price: "₹21,000",
+    price: "₹30,000",
     duration: "18 Months",
-    extra: "+ 100 USDT Copy",
+    extra: "",
     icon: <Rocket className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
     highlight: false
   },
   {
-    name: "Advanced 2.0",
-    price: "₹31,000",
+    name: "Pro Advanced",
+    price: "₹40,000",
     duration: "24 Months",
-    extra: "+ 150 USDT Copy",
+    extra: "",
     icon: <TrendingUp className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
     highlight: true
   },
   {
-    name: "Combo Program",
-    price: "₹45,000",
-    duration: "60 Months",
-    extra: "+ 200 USDT Copy",
-    icon: <Briefcase className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
-    highlight: false
-  },
-  {
     name: "Internship",
-    price: "₹15,000",
+    price: "₹20,000",
     duration: "Conditions Apply",
     extra: "Career Path",
     icon: <Trophy className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
     highlight: false
   }
 ];
+
+const comboProgram: ProgramItem = {
+  name: "Combo Program",
+  price: "₹45,000 to 65,000",
+  duration: "60 Months",
+  extra: "",
+  icon: <Briefcase className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
+  highlight: false
+};
+
+const preBasicProgramDefault = {
+  name: "Pre Basic Program",
+  price: "₹5,999",
+  duration: "Awareness Program",
+  extra: "Digital currency & digital assets awareness program",
+  discount: "40% off ₹11,000",
+  highlight: false
+};
 
 const benefits = [
   "Professional Trading Education",
@@ -76,8 +96,11 @@ export default function Packages() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedProgram, setSelectedProgram] = useState("");
   const [content, setContent] = useState({
-    instituteName: "IGROW LEARNING INSTITUTE",
-    subtitle: "Course & Admission Programs"
+    packages: {
+      instituteName: "IGROW LEARNING INSTITUTE",
+      subtitle: "Course & Admission Programs",
+      preBasicProgram: preBasicProgramDefault
+    }
   });
 
   useEffect(() => {
@@ -86,7 +109,17 @@ export default function Packages() {
         const response = await fetch('/api/content', { cache: 'no-store' });
         const data = await safeJson(response);
         if (response.ok && data?.success && data.content?.packages) {
-          setContent(data.content.packages);
+          setContent(prev => ({
+            ...prev,
+            packages: {
+              ...prev.packages,
+              ...data.content.packages,
+              preBasicProgram: {
+                ...prev.packages.preBasicProgram,
+                ...(data.content.packages?.preBasicProgram || {})
+              }
+            }
+          }));
         } else if (!response.ok) {
           console.warn('Packages content fetch failed', response.status, data);
         }
@@ -96,6 +129,15 @@ export default function Packages() {
     };
     fetchContent();
   }, []);
+
+  const packagePrograms: ProgramItem[] = [
+    {
+      ...content.packages.preBasicProgram,
+      icon: <Lightbulb className="w-6 h-6 md:w-8 md:h-8 text-primary" />,
+      highlight: false
+    } as ProgramItem,
+    ...programs
+  ];
 
   const handleJoinNow = (programName: string) => {
     setSelectedProgram(programName);
@@ -123,9 +165,9 @@ export default function Packages() {
       <div className="container mx-auto px-6">
         <div className="text-center max-w-5xl mx-auto mb-20 md:mb-32 space-y-6">
           <h2 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-headline font-bold text-white tracking-tight leading-[1.2]">
-            {content.instituteName}
+            {content.packages.instituteName}
           </h2>
-          <p className="text-primary text-xl md:text-3xl font-medium italic">{content.subtitle}</p>
+          <p className="text-primary text-xl md:text-3xl font-medium italic">{content.packages.subtitle}</p>
         </div>
 
         <div className="space-y-16 md:space-y-24">
@@ -135,7 +177,7 @@ export default function Packages() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 md:gap-8">
-            {programs.map((pkg, i) => (
+            {packagePrograms.map((pkg, i) => (
               <Card 
                 key={i} 
                 className={`relative p-8 md:p-10 rounded-[35px] md:rounded-[45px] border transition-all duration-500 hover:-translate-y-2 flex flex-col justify-between overflow-hidden group ${
@@ -153,10 +195,15 @@ export default function Packages() {
                   </div>
                   <div className="space-y-2">
                     <h4 className="text-xl md:text-2xl font-bold text-white tracking-tight leading-tight">{pkg.name}</h4>
-                    <p className="text-white/40 text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] mt-2">{pkg.extra}</p>
+                    {pkg.extra ? (
+                      <p className="text-white/40 text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] mt-2">{pkg.extra}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-1">
                     <div className="text-3xl md:text-4xl font-bold text-primary tracking-tight">{pkg.price}</div>
+                    {pkg.discount && (
+                      <div className="text-sm md:text-base text-emerald-300 font-semibold">{pkg.discount}</div>
+                    )}
                     <div className="text-[9px] md:text-[10px] text-white/40 font-bold uppercase">Duration: {pkg.duration}</div>
                   </div>
                 </div>
@@ -173,6 +220,26 @@ export default function Packages() {
                 </Button>
               </Card>
             ))}
+          </div>
+
+          <div className="mt-16 flex justify-center">
+            <Card className="relative p-8 md:p-10 rounded-[35px] md:rounded-[45px] border bg-white/5 border-white/10 w-full max-w-3xl">
+              <div className="space-y-8 relative z-10 text-center">
+                <div className="w-16 h-16 mx-auto rounded-[20px] md:rounded-[24px] bg-white/5 flex items-center justify-center shadow-inner">
+                  {comboProgram.icon}
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-xl md:text-2xl font-bold text-white tracking-tight leading-tight">{comboProgram.name}</h4>
+                  {comboProgram.extra ? (
+                    <p className="text-white/40 text-[9px] md:text-[10px] font-bold uppercase tracking-[0.2em] mt-2">{comboProgram.extra}</p>
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  <div className="text-3xl md:text-4xl font-bold text-primary tracking-tight">{comboProgram.price}</div>
+                  <div className="text-[9px] md:text-[10px] text-white/40 font-bold uppercase">Duration: {comboProgram.duration}</div>
+                </div>
+              </div>
+            </Card>
           </div>
         </div>
 
@@ -230,7 +297,7 @@ export default function Packages() {
                      <SelectValue />
                    </SelectTrigger>
                    <SelectContent className="bg-[#0C1222] border-white/10 text-white rounded-2xl">
-                     {programs.map(p => <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>)}
+                     {packagePrograms.map(p => <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>)}
                    </SelectContent>
                  </Select>
                </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, ShieldCheck, Zap, Lock, Globe } from 'lucide-react';
 import { PlaceHolderImages } from '@/lib/placeholder-images';
@@ -12,7 +13,7 @@ export default function Ecosystem() {
     <div className="container mx-auto px-6 mb-12">
       <div className="text-center space-y-8 md:space-y-12 mb-16 md:mb-24 relative z-10">
         <h2 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-headline font-bold text-white tracking-normal leading-[1.2] max-w-5xl mx-auto">
-          Your crypto journey <br className="hidden sm:block" /> starts here
+          Your Trading And Learning journey <br className="hidden sm:block" /> starts here
         </h2>
         <p className="text-white/50 text-base md:text-2xl lg:text-3xl font-medium tracking-normal leading-[1.4] max-w-4xl mx-auto">
           Trade with ease and the lowest fees. Institutional precision meets retail accessibility.
@@ -44,10 +45,10 @@ export default function Ecosystem() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8 mb-16 md:mb-24 relative z-10">
         {[
-          { icon: <Globe className="w-8 h-8 md:w-10 md:h-10" />, title: "BTC, ETH, and 400+ crypto", desc: "Buy, sell, and trade in your local currency with deep liquidity" },
-          { icon: <ShieldCheck className="w-8 h-8 md:w-10 md:h-10" />, title: "Security Protection", desc: "Up to US$250,000 against unauthorized transactions" },
-          { icon: <Zap className="w-8 h-8 md:w-10 md:h-10" />, title: "Near-zero trading fees", desc: "Industry-leading rates when you buy crypto with a card" },
-          { icon: <Lock className="w-8 h-8 md:w-10 md:h-10" />, title: "Secure by design", desc: "Leading the industry in licenses and global certifications" }
+          { icon: <Globe className="w-8 h-8 md:w-10 md:h-10" />, title: "FOREX, CRYPTO", desc: "Buy, sell, and trade in your local currency with deep liquidity" },
+          { icon: <ShieldCheck className="w-8 h-8 md:w-10 md:h-10" />, title: "Security Protection", desc: "Learn the Market. Master the Strategy. Trade with Confidence." },
+          { icon: <Zap className="w-8 h-8 md:w-10 md:h-10" />, title: "Copy Trade Feature", desc: "We have our Own Copy Trade Feature that secures your money and grows you faster." },
+          { icon: <Lock className="w-8 h-8 md:w-10 md:h-10" />, title: "We are Certified company", desc: "GROW Learning Society is a registered society under the West Bengal Societies Registration Act, 1961 and holds a valid Certificate of Registration of Societies issued by the Government of West Bengal." }
         ].map((item, i) => (
           <div key={i} className="space-y-6 p-8 rounded-[40px] bg-white/5 border border-white/5 hover:bg-white/[0.08] transition-colors group">
             <div className="w-14 h-14 md:w-16 md:h-16 rounded-[20px] bg-white/10 flex items-center justify-center text-primary shadow-inner group-hover:scale-110 transition-transform border border-white/5">
@@ -59,6 +60,11 @@ export default function Ecosystem() {
             </div>
           </div>
         ))}
+      </div>
+      <div className="text-center mt-10">
+        <Link href="/download-1-2.pdf" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center rounded-full bg-primary px-8 py-4 text-base md:text-lg font-bold text-black hover:bg-primary/90 transition-all">
+          View Certificate PDF
+        </Link>
       </div>
     </div>
   );

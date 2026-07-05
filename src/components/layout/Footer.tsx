@@ -8,15 +8,29 @@ import { Home, BarChart3, MessageCircle, Settings } from 'lucide-react';
 import { safeJson } from '@/lib/utils';
 
 export default function Footer() {
-  const [logoUrl, setLogoUrl] = useState("/igrow_logo footer - Copy.png");
+  const [content, setContent] = useState({
+    branding: { logoUrl: "/igrow_logo footer - Copy.png", siteName: "iGrow Finance" },
+    contacts: { main: { email: 'igrow201@gmail.com', phone: '+91 62900 50426' } }
+  });
 
   useEffect(() => {
     const fetchBranding = async () => {
       try {
         const response = await fetch('/api/content', { cache: 'no-store' });
         const data = await safeJson(response);
-        if (response.ok && data?.success && data.content?.branding?.logoUrl) {
-          setLogoUrl(data.content.branding.logoUrl);
+        if (response.ok && data?.success && data.content) {
+          setContent(prev => ({
+            ...prev,
+            ...data.content,
+            branding: {
+              ...prev.branding,
+              ...(data.content.branding || {}),
+            },
+            contacts: {
+              ...prev.contacts,
+              ...(data.content.contacts || {}),
+            },
+          }));
         } else if (!response.ok) {
           console.warn('Footer branding fetch failed', response.status, data);
         }
@@ -26,6 +40,10 @@ export default function Footer() {
     };
     fetchBranding();
   }, []);
+
+  const { logoUrl } = content.branding;
+  const email = content.contacts?.main?.email || 'igrow201@gmail.com';
+  const phone = content.contacts?.main?.phone || '+91 62900 50426';
 
   return (
     <footer className="py-20 bg-transparent border-t border-white/5">
@@ -59,8 +77,8 @@ export default function Footer() {
           <div className="space-y-4">
             <h4 className="font-headline font-bold text-sm uppercase tracking-widest text-white">Contact Us</h4>
             <ul className="space-y-2 text-sm text-white/40">
-              <li><a href="mailto:igrow201@gmail.com" className="hover:text-primary transition-colors">igrow201@gmail.com</a></li>
-              <li><a href="tel:+916290050426" className="hover:text-primary transition-colors">+91 62900 50426</a></li>
+              <li><a href={`mailto:${email}`} className="hover:text-primary transition-colors">{email}</a></li>
+              <li><a href={`tel:${phone.replace(/\s+/g, '')}`} className="hover:text-primary transition-colors">{phone}</a></li>
               <li><Link href="#" className="hover:text-primary transition-colors">Knowledge Base</Link></li>
               <li><Link href="#" className="hover:text-primary transition-colors">Support Portal</Link></li>
             </ul>

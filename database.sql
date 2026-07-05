@@ -131,6 +131,21 @@ VALUES (
       "title": "iGrow Referral Benefits",
       "description": "Scale your network and unlock exponential rewards. Our unique referral structure is designed to reward active ecosystem participants.",
       "imageUrl": "/commiso.png"
+    },
+    "contacts": {
+      "main": {
+        "address": "Flat 11, B.A. Road, Kolkata, West Bengal, India",
+        "phone": "+91 62900 50426",
+        "email": "igrow201@gmail.com"
+      },
+      "branches": [
+        {
+          "label": "Main Office",
+          "address": "Flat 11, B.A. Road, Kolkata, West Bengal, India",
+          "phone": "+91 62900 50426",
+          "email": "igrow201@gmail.com"
+        }
+      ]
     }
   }'
 );

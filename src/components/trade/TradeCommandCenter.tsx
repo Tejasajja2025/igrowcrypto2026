@@ -148,6 +148,16 @@ export function TradeCommandCenter({ showFollowerTerminal = true }: TradeCommand
       signalId,
     };
 
+    console.log('[FRONTEND] Broadcasting signal:', {
+      signalId,
+      symbol,
+      side,
+      volume,
+      entryPrice,
+      endpoint: endpoint || '/api/signals',
+      payload,
+    });
+
     try {
       const response = await fetch(endpoint || '/api/signals', {
         method: 'POST',
@@ -158,17 +168,128 @@ export function TradeCommandCenter({ showFollowerTerminal = true }: TradeCommand
       });
 
       const data = await safeJson(response);
+      
+      console.log('[FRONTEND] Signal response:', {
+        status: response.status,
+        ok: response.ok,
+        data,
+      });
+
       if (!response.ok) {
-        throw new Error(data?.message || 'Signal API error');
+        throw new Error(data?.error || data?.message || `Signal API error (${response.status})`);
       }
 
-      setLogs((prev) => [`Broadcasted ${side} ${symbol} ${volume} lots at ${entryPrice}`, ...prev]);
+      setLogs((prev) => [
+        `✓ Signal stored: ${side} ${symbol} ${volume} lots @ ${entryPrice}${data?.signal?.id ? ` [${data.signal.id}]` : ''}`,
+        ...prev
+      ]);
       setStatus('Broadcast successful');
       setComment('');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      setLogs((prev) => [`Signal error: ${message}`, ...prev]);
+      console.error('[FRONTEND] Signal broadcast error:', message);
+      setLogs((prev) => [`✗ Signal error: ${message}`, ...prev]);
       setStatus(`Broadcast failed: ${message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleCloseAll = async () => {
+    setSending(true);
+    setStatus('Closing all positions...');
+
+    const closeSignal = {
+      id: crypto.randomUUID(),
+      action: 'CLOSE',
+      currencyPair: 'ALL',
+      comment: 'Close all positions',
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log('[FRONTEND] Broadcasting CLOSE ALL signal:', closeSignal);
+
+    try {
+      const response = await fetch(endpoint || '/api/signals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(closeSignal),
+      });
+
+      const data = await safeJson(response);
+      
+      console.log('[FRONTEND] CLOSE ALL response:', {
+        status: response.status,
+        ok: response.ok,
+        data,
+      });
+
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `Close ALL error (${response.status})`);
+      }
+
+      setLogs((prev) => [
+        `✓ CLOSE ALL signal sent [${closeSignal.id}]`,
+        ...prev
+      ]);
+      setStatus('CLOSE ALL executed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[FRONTEND] CLOSE ALL error:', message);
+      setLogs((prev) => [`✗ CLOSE ALL error: ${message}`, ...prev]);
+      setStatus(`CLOSE ALL failed: ${message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleCloseTrade = async (currencyPair: string, direction: string) => {
+    setSending(true);
+    setStatus(`Closing ${currencyPair}...`);
+
+    const closeSignal = {
+      id: crypto.randomUUID(),
+      action: 'CLOSE',
+      currencyPair: currencyPair.replace('/', '').replace(' ', ''),
+      comment: `Close ${direction} ${currencyPair}`,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log('[FRONTEND] Broadcasting CLOSE signal:', closeSignal);
+
+    try {
+      const response = await fetch(endpoint || '/api/signals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(closeSignal),
+      });
+
+      const data = await safeJson(response);
+      
+      console.log('[FRONTEND] CLOSE response:', {
+        status: response.status,
+        ok: response.ok,
+        data,
+      });
+
+      if (!response.ok) {
+        throw new Error(data?.error || data?.message || `Close error (${response.status})`);
+      }
+
+      setLogs((prev) => [
+        `✓ CLOSE ${currencyPair} signal sent [${closeSignal.id}]`,
+        ...prev
+      ]);
+      setStatus('Close executed');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[FRONTEND] CLOSE error:', message);
+      setLogs((prev) => [`✗ CLOSE error: ${message}`, ...prev]);
+      setStatus(`Close failed: ${message}`);
     } finally {
       setSending(false);
     }
@@ -488,8 +609,13 @@ export function TradeCommandCenter({ showFollowerTerminal = true }: TradeCommand
                   <p className="text-xs uppercase tracking-[0.35em] text-white/40">Open Trades</p>
                   <CardTitle className="text-2xl font-semibold text-white">Pending MT5 Signals</CardTitle>
                 </div>
-                <Button type="button" className="h-10 rounded-2xl bg-white/5 text-white border border-white/10">
-                  Close All
+                <Button 
+                  type="button" 
+                  onClick={handleCloseAll}
+                  disabled={sending}
+                  className="h-10 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30 disabled:opacity-50"
+                >
+                  {sending ? 'Closing...' : 'Close All'}
                 </Button>
               </div>
             </CardHeader>
@@ -503,8 +629,13 @@ export function TradeCommandCenter({ showFollowerTerminal = true }: TradeCommand
                   <span className="text-emerald-300">+0.0051</span>
                 </div>
                 <p className="text-sm text-white/60">SL 1.08200 • TP 1.09100 • Lots 0.01 • 18 followers</p>
-                <Button type="button" className="mt-4 h-10 rounded-2xl bg-white/5 text-white border border-white/10">
-                  Close
+                <Button 
+                  type="button" 
+                  onClick={() => handleCloseTrade('EUR/USD', 'BUY')}
+                  disabled={sending}
+                  className="mt-4 h-10 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30 disabled:opacity-50"
+                >
+                  {sending ? 'Closing...' : 'Close'}
                 </Button>
               </div>
               <div className="rounded-[24px] bg-[#08131F] border border-white/10 p-4">
@@ -516,8 +647,13 @@ export function TradeCommandCenter({ showFollowerTerminal = true }: TradeCommand
                   <span className="text-rose-300">-0.0003</span>
                 </div>
                 <p className="text-sm text-white/60">SL 1.27500 • TP 1.26500 • Lots 0.01 • 12 followers</p>
-                <Button type="button" className="mt-4 h-10 rounded-2xl bg-white/5 text-white border border-white/10">
-                  Close
+                <Button 
+                  type="button" 
+                  onClick={() => handleCloseTrade('GBP/USD', 'SELL')}
+                  disabled={sending}
+                  className="mt-4 h-10 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/50 hover:bg-rose-500/30 disabled:opacity-50"
+                >
+                  {sending ? 'Closing...' : 'Close'}
                 </Button>
               </div>
             </CardContent>

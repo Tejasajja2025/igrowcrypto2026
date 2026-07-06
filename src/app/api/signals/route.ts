@@ -42,15 +42,25 @@ function normalizeSignalPayload(payload: any) {
     .replace(/\s+/g, '')
     .replace(/\//g, '');
 
+  const rawEntry = payload.entryPrice ?? payload.price ?? null;
+  const entryPrice = rawEntry == null || rawEntry === '' || Number.isNaN(Number(rawEntry))
+    ? null
+    : Number(rawEntry);
+
+  const rawLot = payload.lotSize ?? payload.volume ?? null;
+  const lotSize = rawLot == null || rawLot === '' || Number.isNaN(Number(rawLot))
+    ? 0
+    : Number(rawLot);
+
   return {
     id: payload.id || payload.signalId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     currencyPair: normalizedPair,
     direction: payload.direction || payload.side || '',
     action: payload.action || 'OPEN',
-    entryPrice: Number(payload.entryPrice || 0),
+    entryPrice,
     stopLoss: payload.stopLoss != null ? Number(payload.stopLoss) : null,
     takeProfit: payload.takeProfit != null ? Number(payload.takeProfit) : null,
-    lotSize: Number(payload.lotSize || payload.volume || 0),
+    lotSize,
     orderType: payload.orderType || 'Market',
     comment: payload.comment || '',
     followerKey: payload.followerKey || payload.follower_key || null,
@@ -69,39 +79,67 @@ async function fetchPendingSignals(followerKey?: string, sinceTimestamp?: number
     currentUnixSeconds: Math.floor(Date.now() / 1000),
   });
 
-  if (sinceTimestamp) {
-    const sinceSeconds = Math.floor(sinceTimestamp / 1000);
+  if (sinceTimestamp != null) {
     const nowSeconds = Math.floor(Date.now() / 1000);
-    
+    let sinceSeconds = Math.floor(sinceTimestamp);
+    let timestampMode = 'seconds';
+
+    // If the MT5 bridge sends milliseconds, normalize to seconds.
+    if (sinceTimestamp > 9999999999) {
+      sinceSeconds = Math.floor(sinceTimestamp / 1000);
+      timestampMode = 'milliseconds';
+    }
+
+    const diffSeconds = sinceSeconds - nowSeconds;
     console.log('[SIGNALS-FETCH] Time analysis:', {
+      sinceTimestamp,
+      timestampMode,
       sinceSeconds,
       nowSeconds,
-      diffSeconds: nowSeconds - sinceSeconds,
-      isInFuture: sinceSeconds > nowSeconds,
-      diffToNow: sinceSeconds - nowSeconds,
+      diffSeconds,
+      isInFuture: diffSeconds > 0,
     });
 
-    // MT5 might send a timestamp that's slightly in the future due to clock drift
-    // If since is more than 5 minutes in the future, use default window instead
-    if (sinceSeconds > nowSeconds + 300) {
-      console.warn('[SIGNALS-FETCH] ⚠️  Since timestamp is in future by >5 mins, using 2-hour default window', {
+    if (sinceSeconds < 1000000000) {
+      console.warn('[SIGNALS-FETCH] ⚠️  Invalid since timestamp, returning no signals', {
         sinceSeconds,
         nowSeconds,
-        diffSeconds: sinceSeconds - nowSeconds,
       });
-      whereClause += ' AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)';
-    } else {
-      console.log('[SIGNALS-FETCH] Using UNIX_TIMESTAMP filter:', { sinceSeconds });
-      whereClause += ' AND UNIX_TIMESTAMP(created_at) >= ?';
-      params.push(sinceSeconds);
+      return [];
     }
+
+    if (diffSeconds > 600) {
+      console.warn('[SIGNALS-FETCH] ⚠️  Since timestamp is too far in the future, returning no signals', {
+        sinceSeconds,
+        nowSeconds,
+        diffSeconds,
+      });
+      return [];
+    }
+
+    if (diffSeconds > 0) {
+      // MT5 and server clocks may drift; accept small future timestamps by
+      // shifting the window backwards to include recent signals.
+      const adjustedSeconds = Math.max(nowSeconds - 30, 0);
+      console.warn('[SIGNALS-FETCH] ⚠️  Since timestamp is slightly in the future; clamping to now - 30s to allow fresh signals', {
+        sinceSeconds,
+        nowSeconds,
+        diffSeconds,
+        adjustedSeconds,
+      });
+      sinceSeconds = adjustedSeconds;
+    }
+
+    console.log('[SIGNALS-FETCH] Using UNIX_TIMESTAMP filter:', { sinceSeconds });
+    whereClause += ' AND UNIX_TIMESTAMP(created_at) >= ?';
+    params.push(sinceSeconds);
   } else {
-    console.log('[SIGNALS-FETCH] No sinceTimestamp, using 2-hour default window');
-    whereClause += ' AND created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR)';
+    console.warn('[SIGNALS-FETCH] No sinceTimestamp received from MT5, returning no signals until bridge sends a valid timestamp');
+    return [];
   }
 
   if (followerKey) {
-    whereClause += ' AND follower_key = ?';
+    whereClause += ' AND (follower_key = ? OR follower_key IS NULL)';
     params.push(followerKey);
   }
 
@@ -265,8 +303,15 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const followerKey = url.searchParams.get('followerKey') || undefined;
     const sinceParam = url.searchParams.get('since');
-    const sinceTimestamp = sinceParam ? Number(sinceParam) : undefined;
-    
+  const sinceTimestamp = sinceParam !== null ? Number(sinceParam) : undefined;
+
+  if (sinceParam !== null && Number.isNaN(sinceTimestamp)) {
+    console.warn('[SIGNALS-GET] Invalid since timestamp received from MT5:', { sinceParam });
+    return NextResponse.json({
+      success: false,
+      error: 'Invalid since timestamp.'
+    }, { status: 400 });
+  }
     console.log('[SIGNALS-GET] ===== POLL REQUEST FROM MT5 =====');
     console.log('[SIGNALS-GET] Query parameters:', {
       followerKey,
@@ -390,15 +435,11 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    if (signal.action === 'OPEN' && signal.entryPrice <= 0) {
-      console.warn('[SIGNALS-POST] ❌ VALIDATION FAILED: Invalid entry price', { 
+    if (signal.action === 'OPEN' && signal.entryPrice != null && signal.entryPrice <= 0) {
+      console.warn('[SIGNALS-POST] ⚠ Invalid entry price supplied; MT5 will resolve the market price automatically', { 
         signal,
         originalEntryPrice: payload.entryPrice,
       });
-      return NextResponse.json({ 
-        success: false, 
-        error: 'entryPrice must be greater than 0 for OPEN signals.' 
-      }, { status: 400 });
     }
     
     // Log signal type
@@ -446,6 +487,99 @@ export async function POST(request: Request) {
     return NextResponse.json({ 
       success: false, 
       error: errorMessage 
+    }, { status: 500 });
+  }
+}
+
+// Debug endpoint to verify signal persistence
+export async function HEAD(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const debug = url.searchParams.get('debug') === 'true';
+    
+    if (!debug) {
+      return NextResponse.json({ ok: true });
+    }
+
+    console.log('[SIGNALS-DEBUG] ===== DEBUG INFO REQUEST =====');
+    await ensureSignalsTable();
+
+    // Get all pending signals
+    const pendingRows = await query(`
+      SELECT 
+        id,
+        follower_key,
+        currency_pair,
+        direction,
+        action,
+        status,
+        created_at,
+        acknowledged_at
+      FROM ${signalsTable}
+      WHERE status = 'pending'
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+
+    // Get recent signals (last 1 hour)
+    const recentRows = await query(`
+      SELECT 
+        id,
+        follower_key,
+        currency_pair,
+        direction,
+        action,
+        status,
+        created_at,
+        acknowledged_at
+      FROM ${signalsTable}
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
+
+    // Get acknowledged signals (last 1 hour)
+    const acknowledgedRows = await query(`
+      SELECT 
+        id,
+        follower_key,
+        currency_pair,
+        direction,
+        action,
+        status,
+        created_at,
+        acknowledged_at
+      FROM ${signalsTable}
+      WHERE status = 'acknowledged' 
+        AND acknowledged_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+      ORDER BY acknowledged_at DESC
+      LIMIT 10
+    `);
+
+    console.log('[SIGNALS-DEBUG] ✅ Debug info:', {
+      pendingCount: Array.isArray(pendingRows) ? pendingRows.length : 0,
+      recentCount: Array.isArray(recentRows) ? recentRows.length : 0,
+      acknowledgedCount: Array.isArray(acknowledgedRows) ? acknowledgedRows.length : 0,
+    });
+
+    return NextResponse.json({
+      success: true,
+      debug: {
+        timestamp: new Date().toISOString(),
+        pendingSignals: pendingRows,
+        recentSignals: recentRows,
+        acknowledgedSignals: acknowledgedRows,
+        dbConnected: true,
+      }
+    });
+  } catch (error) {
+    console.error('[SIGNALS-DEBUG] ❌ Error:', error);
+    return NextResponse.json({
+      success: false,
+      debug: {
+        error: error instanceof Error ? error.message : String(error),
+        dbConnected: false,
+      }
     }, { status: 500 });
   }
 }

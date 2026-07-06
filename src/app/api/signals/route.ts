@@ -79,8 +79,8 @@ async function fetchPendingSignals(followerKey?: string, sinceTimestamp?: number
     currentUnixSeconds: Math.floor(Date.now() / 1000),
   });
 
+  const nowSeconds = Math.floor(Date.now() / 1000);
   if (sinceTimestamp != null) {
-    const nowSeconds = Math.floor(Date.now() / 1000);
     let sinceSeconds = Math.floor(sinceTimestamp);
     let timestampMode = 'seconds';
 
@@ -134,8 +134,14 @@ async function fetchPendingSignals(followerKey?: string, sinceTimestamp?: number
     whereClause += ' AND UNIX_TIMESTAMP(created_at) >= ?';
     params.push(sinceSeconds);
   } else {
-    console.warn('[SIGNALS-FETCH] No sinceTimestamp received from MT5, returning no signals until bridge sends a valid timestamp');
-    return [];
+    // No since provided by the bridge. To improve robustness for MT5 terminals
+    // that do not send a since value (or on first poll), fall back to returning
+    // recent pending signals from the last N seconds instead of returning none.
+    const fallbackWindow = 600; // 10 minutes
+    const sinceSeconds = Math.max(nowSeconds - fallbackWindow, 0);
+    console.warn('[SIGNALS-FETCH] No sinceTimestamp received from MT5; using fallback window to return recent pending signals', { sinceSeconds, nowSeconds, fallbackWindow });
+    whereClause += ' AND UNIX_TIMESTAMP(created_at) >= ?';
+    params.push(sinceSeconds);
   }
 
   if (followerKey) {

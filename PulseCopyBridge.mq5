@@ -19,14 +19,21 @@ input bool   StrictTPValidation = false;  // Set to false for brokers with restr
 
 string lastProcessedSignal = "";
 long bridgeStartTime = 0;
+long lastPollTime = 0;
 CTrade trade;
 
 int OnInit()
 {
-   bridgeStartTime = TimeCurrent();
+   bridgeStartTime = TimeTradeServer();
+   if(bridgeStartTime == 0)
+      bridgeStartTime = TimeCurrent();
+
+   lastPollTime = bridgeStartTime;
+
    Print("PulseCopy Self-Hosted Bridge Started.");
    Print("Target API: ", ApiUrl);
-   Print("Bridge start time (UTC): ", bridgeStartTime);
+   Print("Bridge start time (server): ", bridgeStartTime);
+   Print("Bridge start time (local): ", TimeCurrent());
    if(StringLen(FollowerKey) > 0)
       Print("Follower Key: ", FollowerKey);
    EventSetTimer(PollIntervalSec);
@@ -45,22 +52,40 @@ void OnTimer()
    uchar requestData[] = {};
    string requestUrl = ApiUrl;
    string followerKey = TrimString(FollowerKey);
+   
+   // Build URL with parameters
    if(StringLen(followerKey) > 0)
    {
-      requestUrl += StringFind(ApiUrl, "?") >= 0 ? "&followerKey=" : "?followerKey=";
+      requestUrl += StringFind(requestUrl, "?") >= 0 ? "&followerKey=" : "?followerKey=";
       requestUrl += followerKey;
    }
    requestUrl += StringFind(requestUrl, "?") >= 0 ? "&" : "?";
-   requestUrl += "since=" + IntegerToString(bridgeStartTime * 1000);
+   int lookback = PollIntervalSec > 0 ? PollIntervalSec : 5;
+   int sinceSec = lastPollTime > lookback ? (int)(lastPollTime - lookback) : 0;
+   long sinceMs = (long)sinceSec * 1000;
+   Print("[BRIDGE-POLL] sinceSec=", sinceSec, " sinceMs=", sinceMs, " lastPollTime=", lastPollTime, " lookback=", lookback);
+   requestUrl += "since=" + IntegerToString(sinceMs);
 
+   Print("[BRIDGE-POLL] Polling signals from: ", requestUrl);
+   
    int status = WebRequest("GET", requestUrl, "Content-Type: application/json\r\n", RequestTimeoutMs, requestData, result, resultHeaders);
+   
    if(status == 200)
    {
       string response = CharArrayToString(result);
-      Print("Bridge response: ", response);
+      Print("[BRIDGE-POLL] ✓ HTTP 200 received, response length: ", StringLen(response));
+      Print("[BRIDGE-POLL] Response: ", response);
+
+      // If automated trading is disabled in the terminal, warn and skip execution steps
+      if(TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)
+      {
+         Print("[BRIDGE-POLL] ⚠ Automated trading is disabled in MetaTrader. Enable AutoTrading and allow WebRequest for the target domain.");
+         // Continue to parse response but avoid attempting order execution while trading disabled
+      }
 
       if(StringFind(response, "\"success\":true") >= 0)
       {
+         Print("[BRIDGE-POLL] ✓ Success flag found in response");
          string signalId;
          string currencyPair;
          string direction;
@@ -71,25 +96,29 @@ void OnTimer()
          double lotSize = 0;
          int parseStart = 0;
          bool processedAny = false;
+         int signalCount = 0;
 
          int nextStart = 0;
          // Process all pending signals in the response
          while(ParseFirstPendingSignal(response, parseStart, nextStart, signalId, currencyPair, direction, action, entryPrice, stopLoss, takeProfit, lotSize))
          {
+            signalCount++;
             parseStart = nextStart;
+            Print("[BRIDGE-POLL] Parsed signal #", signalCount, ": ", signalId);
+            
             if(StringLen(signalId) == 0)
             {
-               Print("No valid signal id found in response.");
+               Print("[BRIDGE-POLL] ⚠ Signal #", signalCount, " has no valid ID, skipping");
                continue;
             }
 
             if(StringCompare(signalId, lastProcessedSignal) == 0)
             {
-               Print("Signal already processed: ", signalId);
+               Print("[BRIDGE-POLL] ⚠ Signal already processed: ", signalId);
                continue;
             }
 
-            Print("Processing signal ", signalId, ": ", action, " ", direction, " ", currencyPair);
+            Print("[BRIDGE-POLL] ✓ Processing NEW signal: ", signalId, " | Action: ", action, " | Direction: ", direction, " | Pair: ", currencyPair);
 
             // If opening and an existing position in the same direction exists, acknowledge and skip executing
             bool alreadySameDir = false;
@@ -108,19 +137,22 @@ void OnTimer()
 
             if(alreadySameDir)
             {
-               Print("Existing position in same direction for ", currencyPair, "; acknowledging signal: ", signalId);
+               Print("[BRIDGE-POLL] ⚠ Existing position in same direction for ", currencyPair, "; acknowledging signal: ", signalId);
                lastProcessedSignal = signalId;
                processedAny = true;
                if(AckSignal(signalId))
-                  Print("Signal acknowledged back to server: ", signalId);
+                  Print("[BRIDGE-POLL] ✓ Signal acknowledged: ", signalId);
                continue;
             }
 
             bool success = false;
-            if(StringCompare(action, "CLOSE") == 0)
+                     if(StringCompare(action, "CLOSE") == 0)
             {
+               string trimmedPair = TrimString(currencyPair);
+               string upperPair = ToUpperString(trimmedPair);
+
                // support CLOSE ALL when currencyPair is empty or equals ALL/*
-               if(StringLen(currencyPair) == 0 || StringCompare(StringToUpper(currencyPair), "ALL") == 0 || StringCompare(currencyPair, "*") == 0)
+               if(StringLen(trimmedPair) == 0 || StringCompare(upperPair, "ALL") == 0 || StringCompare(trimmedPair, "*") == 0)
                {
                   success = ExecuteCloseAll();
                }
@@ -138,72 +170,150 @@ void OnTimer()
             {
                lastProcessedSignal = signalId;
                processedAny = true;
-               Print("Signal processed: ", signalId);
+               lastPollTime = TimeTradeServer() > 0 ? TimeTradeServer() : TimeCurrent();
+               Print("[BRIDGE-POLL] ✓ Signal executed: ", signalId);
                if(AckSignal(signalId))
-                  Print("Signal acknowledged back to server: ", signalId);
+                  Print("[BRIDGE-POLL] ✓ Signal acknowledged back to server: ", signalId);
+               else
+                  Print("[BRIDGE-POLL] ⚠ Failed to acknowledge signal: ", signalId);
             }
             else
             {
-               Print("Signal processing failed: ", signalId);
+               Print("[BRIDGE-POLL] ✗ Signal execution failed: ", signalId);
             }
          }
 
-         if(!processedAny)
+         if(!processedAny && signalCount == 0)
          {
-            Print("No new pending signals were processed.");
+            Print("[BRIDGE-POLL] ℹ No pending signals found in response (normal if no signals sent)");
+         }
+         else if(!processedAny && signalCount > 0)
+         {
+            Print("[BRIDGE-POLL] ⚠ Received ", signalCount, " signals but none were new");
          }
       }
       else
       {
-         Print("Bridge warning: unexpected response from API. ", response);
+         Print("[BRIDGE-POLL] ✗ Bridge error: API response missing success flag");
+         Print("[BRIDGE-POLL] Response: ", response);
       }
    }
    else
    {
-      Print("PulseCopy error: WebRequest failed with code ", status);
-      if(status <= 0)
+      Print("[BRIDGE-POLL] ✗ WebRequest failed with HTTP status code: ", status);
+      if(status == 0)
       {
-         Print("Make sure the domain is added to MT5 WebRequest allowed URLs.");
+         Print("[BRIDGE-POLL] ✗ Connection error - check if URL is accessible and domain is in MT5 WebRequest whitelist");
+         Print("[BRIDGE-POLL] ✗ URL was: ", requestUrl);
+      }
+      else if(status == -1)
+      {
+         Print("[BRIDGE-POLL] ✗ Request timeout (", RequestTimeoutMs, "ms) - server may be slow or unreachable");
+      }
+      else if(status >= 400)
+      {
+         Print("[BRIDGE-POLL] ✗ HTTP ", status, " error - check API endpoint and followerKey");
+      }
+      Print("[BRIDGE-POLL] ✗ Next poll in ", PollIntervalSec, " seconds");
+   }
+}
+
+string NormalizeSymbol(const string value)
+{
+   string normalized = value;
+   if(StringLen(normalized) == 0)
+      return normalized;
+
+   StringReplace(normalized, "/", "");
+   StringReplace(normalized, " ", "");
+   StringReplace(normalized, "-", "");
+   StringReplace(normalized, "_", "");
+   return normalized;
+}
+
+int FindMatchingBrace(const string json, int openBraceIndex)
+{
+   int depth = 0;
+   for(int i = openBraceIndex; i < StringLen(json); i++)
+   {
+      if(StringGetCharacter(json, i) == '{')
+         depth++;
+      else if(StringGetCharacter(json, i) == '}')
+      {
+         depth--;
+         if(depth == 0)
+            return i;
       }
    }
+   return -1;
 }
 
 bool ParseFirstPendingSignal(const string json, int searchFrom, int &nextSearchStart, string &signalId, string &currencyPair, string &direction, string &action, double &entryPrice, double &stopLoss, double &takeProfit, double &lotSize)
 {
    int signalsIndex = StringFind(json, "\"signals\"");
-   if(signalsIndex < 0) return false;
+   int arrayStart = -1;
+   if(signalsIndex >= 0)
+      arrayStart = StringFind(json, "[", signalsIndex);
 
-   int arrayStart = StringFind(json, "[", signalsIndex);
-   if(arrayStart < 0) return false;
+   int objectStart = -1;
+   int objectEnd = -1;
+   int searchPos = arrayStart >= 0 ? MaxInt(arrayStart, searchFrom) : searchFrom;
 
-   int objectStart = StringFind(json, "{", MaxInt(arrayStart, searchFrom));
-   if(objectStart < 0) return false;
-
-   int objectEnd = StringFind(json, "}", objectStart);
-   if(objectEnd < 0 || objectEnd <= objectStart) return false;
-
-   string document = StringSubstr(json, objectStart, objectEnd - objectStart + 1);
-   nextSearchStart = objectEnd + 1;
-   signalId = ExtractJsonField(document, "id");
-   currencyPair = ExtractJsonField(document, "currencyPair");
-   if(StringLen(currencyPair) == 0)
-      currencyPair = ExtractJsonField(document, "symbol");
-   // sanitize common formats (e.g. EUR/USD -> EURUSD, remove spaces)
-   if(StringLen(currencyPair) > 0)
+   while(true)
    {
-      StringReplace(currencyPair, "/", "");
-      StringReplace(currencyPair, " ", "");
-   }
-   direction = ExtractJsonField(document, "direction");
-   action = ExtractJsonField(document, "action");
-   if(StringLen(action) == 0)
-      action = "OPEN";
-   entryPrice = StringToDouble(ExtractJsonField(document, "entryPrice"));
-   stopLoss = StringToDouble(ExtractJsonField(document, "stopLoss"));
-   takeProfit = StringToDouble(ExtractJsonField(document, "takeProfit"));
-   lotSize = StringToDouble(ExtractJsonField(document, "lotSize"));
+      objectStart = StringFind(json, "{", searchPos);
+      if(objectStart < 0)
+         break;
 
-      return StringLen(signalId) > 0;
+      objectEnd = FindMatchingBrace(json, objectStart);
+      if(objectEnd < 0 || objectEnd <= objectStart)
+         break;
+
+      string document = StringSubstr(json, objectStart, objectEnd - objectStart + 1);
+      string candidateId = ExtractJsonField(document, "id");
+      if(StringLen(candidateId) == 0)
+         candidateId = ExtractJsonField(document, "signalId");
+
+      bool looksLikeSignal = StringLen(candidateId) > 0 || StringFind(document, "\"currencyPair\"") >= 0 || StringFind(document, "\"symbol\"") >= 0 || StringFind(document, "\"action\"") >= 0;
+      if(looksLikeSignal)
+      {
+         nextSearchStart = objectEnd + 1;
+         signalId = candidateId;
+         currencyPair = ExtractJsonField(document, "currencyPair");
+         if(StringLen(currencyPair) == 0)
+            currencyPair = ExtractJsonField(document, "symbol");
+         currencyPair = NormalizeSymbol(currencyPair);
+
+         direction = ExtractJsonField(document, "direction");
+         if(StringLen(direction) == 0)
+            direction = ExtractJsonField(document, "side");
+
+         action = ExtractJsonField(document, "action");
+         if(StringLen(action) == 0)
+            action = "OPEN";
+         if(StringCompare(action, "CLOSE", false) != 0)
+            action = "OPEN";
+
+         string entryPriceValue = ExtractJsonField(document, "entryPrice");
+         if(StringLen(entryPriceValue) == 0)
+            entryPriceValue = ExtractJsonField(document, "price");
+         entryPrice = StringToDouble(entryPriceValue);
+
+         stopLoss = StringToDouble(ExtractJsonField(document, "stopLoss"));
+         takeProfit = StringToDouble(ExtractJsonField(document, "takeProfit"));
+
+         string lotSizeValue = ExtractJsonField(document, "lotSize");
+         if(StringLen(lotSizeValue) == 0)
+            lotSizeValue = ExtractJsonField(document, "volume");
+         lotSize = StringToDouble(lotSizeValue);
+
+         return StringLen(signalId) > 0;
+      }
+
+      searchPos = objectEnd + 1;
+   }
+
+   return false;
 }
 
 int MaxInt(int a, int b)
@@ -252,6 +362,18 @@ string TrimString(const string value)
       end--;
 
    return (start > end) ? "" : StringSubstr(value, start, end - start + 1);
+}
+
+string ToUpperString(string value)
+{
+   int len = StringLen(value);
+   for(int i = 0; i < len; i++)
+   {
+      uint c = StringGetCharacter(value, i);
+      if(c >= 97 && c <= 122)
+         StringSetCharacter(value, i, (uchar)(c - 32));
+   }
+   return value;
 }
 
 bool IsStopLossValid(const int orderType, const double price, const double stopLoss)
@@ -376,10 +498,21 @@ bool ExecuteSignal(const string currencyPair, const string direction, double ent
       Print("OrderSend failed: retcode=", result.retcode, " comment=", result.comment);
       if(result.retcode == 10017)
       {
-         Print("CRITICAL: retcode 10017 = Trade disabled on account/EA.");
-         Print("  1. Ensure EA has 'Allow automated trading' enabled in Tools > Options > Expert Advisors");
-         Print("  2. Check broker account settings for algo trading restrictions");
-         Print("  3. Verify account is not in read-only mode");
+         Print("CRITICAL: retcode 10017 = AutoTrading disabled by client or EA.");
+         Print("  1. Enable automated trading in MT5 Tools > Options > Expert Advisors.");
+         Print("  2. Enable AutoTrading for this Expert Advisor on the chart.");
+         Print("  3. Verify broker account allows automated orders.");
+      }
+      else if(result.retcode == 10027)
+      {
+         Print("CRITICAL: retcode 10027 = AutoTrading disabled by client.");
+         Print("  1. Enable the global AutoTrading button in MT5.");
+         Print("  2. Allow automated trading for this EA.");
+         Print("  3. Confirm the symbol is available and not blocked.");
+      }
+      else
+      {
+         Print("OrderSend failed with unknown retcode=", result.retcode, " comment=", result.comment);
       }
       return false;
    }
@@ -392,6 +525,14 @@ bool ExecuteCloseSignal(const string currencyPair)
 {
    if(StringLen(currencyPair) == 0)
       return false;
+
+   string trimmedPair = TrimString(currencyPair);
+   string upperPair = ToUpperString(trimmedPair);
+   if(upperPair == "ALL" || trimmedPair == "*")
+   {
+      Print("ExecuteCloseSignal received ALL-close payload; use ExecuteCloseAll instead.");
+      return ExecuteCloseAll();
+   }
 
    // Ensure the symbol is in Market Watch to allow close operations
    if(!SymbolSelect(currencyPair, true))

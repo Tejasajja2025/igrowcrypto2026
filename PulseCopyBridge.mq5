@@ -61,9 +61,19 @@ void OnTimer()
    }
    requestUrl += StringFind(requestUrl, "?") >= 0 ? "&" : "?";
    int lookback = PollIntervalSec > 0 ? PollIntervalSec : 5;
-   int sinceSec = lastPollTime > lookback ? (int)(lastPollTime - lookback) : 0;
+   // Use current local time as a safe baseline and avoid sending a since
+   // that is in the future relative to the bridge's clock. If lastPollTime
+   // is valid and not ahead of current time, use it; otherwise fall back
+   // to (now - lookback).
+   long nowSec = TimeCurrent();
+   int sinceSec = 0;
+   if(lastPollTime > 0 && lastPollTime <= nowSec)
+      sinceSec = (int)(lastPollTime - lookback);
+   else
+      sinceSec = (int)(nowSec - lookback);
    long sinceMs = (long)sinceSec * 1000;
-   Print("[BRIDGE-POLL] sinceSec=", sinceSec, " sinceMs=", sinceMs, " lastPollTime=", lastPollTime, " lookback=", lookback);
+   Print("[BRIDGE-POLL] times: lastPollTime=", lastPollTime, " timeTradeServer=", TimeTradeServer(), " timeCurrent=", nowSec);
+   Print("[BRIDGE-POLL] sinceSec=", sinceSec, " sinceMs=", sinceMs, " lookback=", lookback);
    requestUrl += "since=" + IntegerToString(sinceMs);
 
    Print("[BRIDGE-POLL] Polling signals from: ", requestUrl);
@@ -170,7 +180,13 @@ void OnTimer()
             {
                lastProcessedSignal = signalId;
                processedAny = true;
-               lastPollTime = TimeTradeServer() > 0 ? TimeTradeServer() : TimeCurrent();
+               // Update lastPollTime using the server time only if it is not
+               // in the future compared to the local clock; otherwise use
+               // the local current time so subsequent polls don't send
+               // future timestamps.
+               long serverTime = TimeTradeServer();
+               long now = TimeCurrent();
+               lastPollTime = (serverTime > 0 && serverTime <= now) ? serverTime : now;
                Print("[BRIDGE-POLL] ✓ Signal executed: ", signalId);
                if(AckSignal(signalId))
                   Print("[BRIDGE-POLL] ✓ Signal acknowledged back to server: ", signalId);

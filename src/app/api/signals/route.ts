@@ -101,11 +101,17 @@ async function fetchPendingSignals(followerKey?: string, sinceTimestamp?: number
     });
 
     if (sinceSeconds < 1000000000) {
-      console.warn('[SIGNALS-FETCH] ⚠️  Invalid since timestamp, returning no signals', {
+      // Some MT5 terminals or misconfigured EAs may send outdated or small
+      // since timestamps (e.g. pre-2001 values). Instead of returning no
+      // signals, clamp to a recent window so the bridge still receives
+      // pending signals.
+      const clampWindow = 600; // 10 minutes
+      console.warn('[SIGNALS-FETCH] ⚠️  since timestamp appears too small; clamping to recent window', {
         sinceSeconds,
         nowSeconds,
+        clampWindow
       });
-      return [];
+      sinceSeconds = Math.max(nowSeconds - clampWindow, 0);
     }
 
     if (diffSeconds > 600) {
